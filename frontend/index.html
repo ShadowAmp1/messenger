@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Mini Messenger</title>
+  <style>
+    body { font-family: system-ui, Arial; margin: 0; background: #0b1220; color: #e6eefc; }
+    .wrap { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+    .card { width: min(920px, 100%); background: #121a2b; border: 1px solid #24304a; border-radius: 14px; overflow: hidden; }
+    .top { display:flex; gap: 10px; padding: 14px; border-bottom: 1px solid #24304a; align-items: center; }
+    .top input { flex:1; padding: 10px; border-radius: 10px; border: 1px solid #24304a; background:#0b1220; color:#e6eefc; }
+    .top button { padding: 10px 14px; border-radius: 10px; border: 1px solid #24304a; background:#1b2742; color:#e6eefc; cursor:pointer; }
+    .grid { display:grid; grid-template-columns: 280px 1fr; height: 70vh; }
+    .sidebar { border-right: 1px solid #24304a; padding: 14px; }
+    .chat { display:flex; flex-direction: column; }
+    .msgs { flex:1; overflow:auto; padding: 14px; display:flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 75%; padding: 10px 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; }
+    .me { align-self: flex-end; background:#12284a; }
+    .meta { font-size: 12px; opacity: .8; margin-bottom: 4px; }
+    .composer { display:flex; gap: 10px; padding: 14px; border-top: 1px solid #24304a; }
+    .composer input { flex:1; padding: 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; color:#e6eefc; }
+    .composer button { padding: 12px 16px; border-radius: 12px; border: 1px solid #24304a; background:#1b2742; color:#e6eefc; cursor:pointer; }
+    .hint { font-size: 13px; opacity: .9; }
+    .row { display:flex; gap: 8px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <input id="username" placeholder="username" />
+        <input id="password" placeholder="password" type="password" />
+        <button id="btnRegister">Register</button>
+        <button id="btnLogin">Login</button>
+      </div>
+
+      <div class="grid">
+        <div class="sidebar">
+          <div><b>Chats</b></div>
+          <div class="hint">Пока один чат: <b>general</b></div>
+          <div class="row">
+            <button id="btnLoad">Load history</button>
+            <button id="btnLogout">Logout</button>
+          </div>
+          <div style="margin-top:10px; font-size:12px; opacity:.8" id="status"></div>
+        </div>
+
+        <div class="chat">
+          <div class="msgs" id="msgs"></div>
+          <div class="composer">
+            <input id="text" placeholder="Напиши сообщение..." />
+            <button id="btnSend">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  let token = localStorage.getItem("token") || "";
+  let me = localStorage.getItem("username") || "";
+  let ws = null;
+
+  function setStatus(s){ $("status").textContent = s; }
+
+  function addMsg({sender, text, created_at}) {
+    const div = document.createElement("div");
+    div.className = "msg" + (sender === me ? " me" : "");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const t = new Date(created_at * 1000).toLocaleTimeString();
+    meta.textContent = `${sender} • ${t}`;
+    const body = document.createElement("div");
+    body.textContent = text;
+    div.appendChild(meta);
+    div.appendChild(body);
+    $("msgs").appendChild(div);
+    $("msgs").scrollTop = $("msgs").scrollHeight;
+  }
+
+  function addSystem(text) {
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.style.opacity = ".8";
+    div.textContent = text;
+    $("msgs").appendChild(div);
+    $("msgs").scrollTop = $("msgs").scrollHeight;
+  }
+
+  async function api(path, method="GET", body=null) {
+    const opts = { method, headers: {} };
+    if (body) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Request failed");
+    return data;
+  }
+
+  async function register() {
+    const username = $("username").value.trim();
+    const password = $("password").value;
+    await api("/api/register", "POST", {username, password});
+    addSystem("✅ Registered. Теперь логинься.");
+  }
+
+  async function login() {
+    const username = $("username").value.trim();
+    const password = $("password").value;
+    const data = await api("/api/login", "POST", {username, password});
+    token = data.token;
+    me = data.username;
+    localStorage.setItem("token", token);
+    localStorage.setItem("username", me);
+    addSystem(`✅ Logged in as ${me}`);
+    connectWS();
+    await loadHistory();
+  }
+
+  async function loadHistory() {
+    if (!token) return addSystem("⚠️ Сначала логин.");
+    $("msgs").innerHTML = "";
+    const data = await api(`/api/messages?token=${encodeURIComponent(token)}`);
+    for (const m of data.messages) addMsg(m);
+  }
+
+  function connectWS() {
+    if (!token) return;
+    if (ws) ws.close();
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
+
+    ws.onopen = () => setStatus("🟢 Connected");
+    ws.onclose = () => setStatus("🔴 Disconnected");
+    ws.onerror = () => setStatus("⚠️ WS error");
+
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.type === "message") addMsg(data);
+      if (data.type === "presence") addSystem(`👤 ${data.user} is ${data.status}`);
+    };
+  }
+
+  function send() {
+    const text = $("text").value.trim();
+    if (!text) return;
+    if (!ws || ws.readyState !== 1) return addSystem("⚠️ Нет соединения WS");
+    ws.send(JSON.stringify({type:"message", text}));
+    $("text").value = "";
+  }
+
+  function logout() {
+    token = ""; me = "";
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    if (ws) ws.close();
+    ws = null;
+    setStatus("");
+    $("msgs").innerHTML = "";
+    addSystem("👋 Logged out");
+  }
+
+  $("btnRegister").onclick = () => register().catch(e => addSystem("❌ " + e.message));
+  $("btnLogin").onclick = () => login().catch(e => addSystem("❌ " + e.message));
+  $("btnLoad").onclick = () => loadHistory().catch(e => addSystem("❌ " + e.message));
+  $("btnSend").onclick = () => send();
+  $("btnLogout").onclick = () => logout();
+  $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+
+  // auto reconnect if token exists
+  if (token) {
+    addSystem(`🔁 Restoring session for ${me || "user"}...`);
+    connectWS();
+    loadHistory().catch(()=>{});
+  }
+</script>
+</body>
+</html>
