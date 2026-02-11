@@ -7,19 +7,30 @@ import sqlite3
 import hashlib
 import hmac
 import secrets
+import re
 from typing import Dict, Set, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "app.db")
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
+
+# =========================
+# Config
+# =========================
+BASE_DIR = os.path.dirname(__file__)
+DB_PATH = os.path.join(BASE_DIR, "app.db")
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")  # на Render лучше задать ENV
 JWT_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
+CHAT_ID = "general"  # MVP: один чат
 
 
-# ---------- DB ----------
+# =========================
+# DB helpers
+# =========================
 def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -29,6 +40,7 @@ def db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = db()
     cur = conn.cursor()
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -39,6 +51,7 @@ def init_db() -> None:
         );
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS messages (
@@ -50,28 +63,38 @@ def init_db() -> None:
         );
         """
     )
+
     conn.commit()
     conn.close()
 
 
-# ---------- Password hashing ----------
+# =========================
+# Password hashing
+# =========================
 def hash_password(password: str, salt: Optional[str] = None) -> str:
     if salt is None:
         salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000)
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        200_000,
+    )
     return f"pbkdf2_sha256$200000${salt}${dk.hex()}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        _, _, salt, hexhash = stored.split("$", 3)
+        _, _, salt, _ = stored.split("$", 3)
     except ValueError:
         return False
     test = hash_password(password, salt)
     return hmac.compare_digest(test, stored)
 
 
-# ---------- Tiny JWT (HS256) ----------
+# =========================
+# Minimal JWT HS256
+# =========================
 def b64url(data: bytes) -> str:
     import base64
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -104,15 +127,18 @@ def jwt_verify(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Bad signature")
 
     payload = json.loads(b64urldecode(payload_b64))
-    if payload.get("exp", 0) < int(time.time()):
+    if int(payload.get("exp", 0)) < int(time.time()):
         raise HTTPException(status_code=401, detail="Token expired")
     return payload
 
 
-# ---------- FastAPI ----------
+# =========================
+# FastAPI app
+# =========================
 init_db()
 app = FastAPI()
 
+# CORS: для MVP ок. Потом ограничим доменом Render.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -121,30 +147,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+# ---------- Frontend serving (ВАЖНО!)
+# НЕ mount("/") — иначе может перехватывать /api/... и давать 405.
+FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
 
 
+@app.get("/")
+def serve_index():
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+
+# если появятся отдельные файлы (css/js/img) — они будут доступны по /static/...
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+# =========================
+# Schemas
+# =========================
 class AuthIn(BaseModel):
     username: str
     password: str
 
 
-class MessageIn(BaseModel):
-    text: str
-
-
-CHAT_ID = "general"  # one room for MVP
-
-
-# Active connections per chat
-connections: Dict[str, Set[WebSocket]] = {CHAT_ID: set()}
-
-
-import re
-
+# =========================
+# Auth endpoints
+# =========================
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+
 
 @app.post("/api/register")
 def register(data: AuthIn):
@@ -152,10 +181,8 @@ def register(data: AuthIn):
     password = data.password
 
     if not USERNAME_RE.match(username):
-        raise HTTPException(
-            status_code=400,
-            detail="Username: 3-20 символов, только буквы/цифры/_."
-        )
+        raise HTTPException(status_code=400, detail="Username: 3-20 символов, только буквы/цифры/_.")
+
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password: минимум 6 символов.")
 
@@ -171,17 +198,20 @@ def register(data: AuthIn):
         raise HTTPException(status_code=400, detail="Такой username уже занят.")
     finally:
         conn.close()
-    return {"ok": True}
 
+    return {"ok": True}
 
 
 @app.post("/api/login")
 def login(data: AuthIn):
+    username = data.username.strip()
+
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT username, pass_hash FROM users WHERE username = ?", (data.username.strip(),))
+    cur.execute("SELECT username, pass_hash FROM users WHERE username = ?", (username,))
     row = cur.fetchone()
     conn.close()
+
     if not row or not verify_password(data.password, row["pass_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -190,22 +220,32 @@ def login(data: AuthIn):
     return {"token": token, "username": row["username"]}
 
 
+# =========================
+# Messages endpoints
+# =========================
 @app.get("/api/messages")
 def list_messages(token: str):
     payload = jwt_verify(token)
-    _ = payload["sub"]
+    _username = payload["sub"]
 
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, chat_id, sender, text, created_at FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 100",
+        "SELECT id, chat_id, sender, text, created_at "
+        "FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 100",
         (CHAT_ID,),
     )
     rows = cur.fetchall()
     conn.close()
-    # return oldest -> newest
-    msgs = [dict(r) for r in rows][::-1]
+
+    msgs = [dict(r) for r in rows][::-1]  # oldest -> newest
     return {"chat_id": CHAT_ID, "messages": msgs}
+
+
+# =========================
+# WebSocket realtime chat
+# =========================
+connections: Dict[str, Set[WebSocket]] = {CHAT_ID: set()}
 
 
 @app.websocket("/ws")
@@ -214,6 +254,7 @@ async def ws_endpoint(ws: WebSocket):
     if not token:
         await ws.close(code=4401)
         return
+
     try:
         payload = jwt_verify(token)
     except HTTPException:
@@ -225,48 +266,51 @@ async def ws_endpoint(ws: WebSocket):
 
     connections[CHAT_ID].add(ws)
 
-    # notify presence (simple)
-    join_event = {"type": "presence", "user": username, "status": "online", "ts": int(time.time())}
-    await broadcast(CHAT_ID, join_event)
+    # presence online
+    await broadcast(CHAT_ID, {"type": "presence", "user": username, "status": "online", "ts": int(time.time())})
 
     try:
         while True:
             raw = await ws.receive_text()
             data = json.loads(raw)
 
-            if data.get("type") == "message":
-                text = (data.get("text") or "").strip()
-                if not text:
-                    continue
+            if data.get("type") != "message":
+                continue
 
-                ts = int(time.time())
-                # store
-                conn = db()
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO messages(chat_id, sender, text, created_at) VALUES(?,?,?,?)",
-                    (CHAT_ID, username, text, ts),
-                )
-                conn.commit()
-                msg_id = cur.lastrowid
-                conn.close()
+            text = (data.get("text") or "").strip()
+            if not text:
+                continue
+            if len(text) > 2000:
+                continue
 
-                event = {
-                    "type": "message",
-                    "id": msg_id,
-                    "chat_id": CHAT_ID,
-                    "sender": username,
-                    "text": text,
-                    "created_at": ts,
-                }
-                await broadcast(CHAT_ID, event)
+            ts = int(time.time())
+
+            # store message
+            conn = db()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO messages(chat_id, sender, text, created_at) VALUES(?,?,?,?)",
+                (CHAT_ID, username, text, ts),
+            )
+            conn.commit()
+            msg_id = cur.lastrowid
+            conn.close()
+
+            event = {
+                "type": "message",
+                "id": msg_id,
+                "chat_id": CHAT_ID,
+                "sender": username,
+                "text": text,
+                "created_at": ts,
+            }
+            await broadcast(CHAT_ID, event)
 
     except WebSocketDisconnect:
         pass
     finally:
         connections[CHAT_ID].discard(ws)
-        leave_event = {"type": "presence", "user": username, "status": "offline", "ts": int(time.time())}
-        await broadcast(CHAT_ID, leave_event)
+        await broadcast(CHAT_ID, {"type": "presence", "user": username, "status": "offline", "ts": int(time.time())})
 
 
 async def broadcast(chat_id: str, event: dict) -> None:
