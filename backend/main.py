@@ -61,6 +61,17 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime"}  # mov
+# ✅ Добавили аудио (voice notes)
+ALLOWED_AUDIO_MIME = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/aac",
+    "audio/x-m4a",
+    "audio/m4a",
+}
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 
@@ -89,7 +100,7 @@ cloudinary.config(
 # DB helpers
 # =========================
 def db():
-    # simple + safe: new connection per action
+    # new connection per action (simple + safe)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
@@ -272,6 +283,9 @@ def media_kind_from_mime(mime: str) -> str:
         return "image"
     if mime in ALLOWED_VIDEO_MIME or mime.startswith("video/"):
         return "video"
+    # ✅ Голосовые/аудио
+    if mime in ALLOWED_AUDIO_MIME or mime.startswith("audio/"):
+        return "audio"
     return ""
 
 
@@ -382,9 +396,6 @@ def list_chats(username: str = Depends(get_current_username)):
                 (username,),
             )
             rows = cur.fetchall()
-
-    # Для DM можно красиво переименовать title на клиенте,
-    # а тут оставляем как есть (dm:key)
     return {"chats": rows}
 
 
@@ -426,7 +437,6 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
 
     with db() as conn:
         with conn.cursor() as cur:
-            # check user exists
             cur.execute("SELECT 1 FROM users WHERE username=%s LIMIT 1", (other,))
             if cur.fetchone() is None:
                 raise HTTPException(status_code=404, detail="Пользователь не найден.")
@@ -543,12 +553,16 @@ async def upload_media(
 
     mime = (file.content_type or "").lower().strip()
     kind = media_kind_from_mime(mime)
+
     if kind == "image":
         if mime and mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
             raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип изображения: {mime}")
     elif kind == "video":
         if mime and mime not in ALLOWED_VIDEO_MIME and not mime.startswith("video/"):
             raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип видео: {mime}")
+    elif kind == "audio":
+        if mime and mime not in ALLOWED_AUDIO_MIME and not mime.startswith("audio/"):
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип аудио: {mime}")
     else:
         raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {mime or 'unknown'}")
 
@@ -692,8 +706,6 @@ async def ws_endpoint(ws: WebSocket):
 # =========================
 # Frontend serve (MONOREPO)
 # =========================
-# Отдаём сайт с / из ../frontend/index.html
-# и все файлы внутри frontend/ (если есть css/js)
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 else:
@@ -702,5 +714,5 @@ else:
         return {
             "error": "frontend folder not found",
             "expected_path": FRONTEND_DIR,
-            "hint": "Repo should contain: frontend/index.html рядом с backend/"
+            "hint": "Repo should contain: frontend/index.html рядом с backend/",
         }
