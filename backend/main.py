@@ -701,11 +701,25 @@ async def ws_endpoint(ws: WebSocket):
 # =========================
 # ВАЖНО: фронт у тебя в папке frontend/
 # Мы монтируем её на "/" так, чтобы / показывал index.html
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+# =========================
+# Frontend mount (monorepo)
+# backend/main.py + frontend/index.html
+# =========================
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))        # .../backend
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                      # .../
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")            # .../frontend
 
 if os.path.isdir(FRONTEND_DIR):
-    # html=True -> отдаёт index.html для "/"
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+else:
+    @app.get("/")
+    def _no_frontend():
+        return {
+            "error": "frontend folder not found",
+            "expected_path": FRONTEND_DIR
+        }
+
 else:
     # если папки нет в репо — будет понятно в ответе
     @app.get("/")
