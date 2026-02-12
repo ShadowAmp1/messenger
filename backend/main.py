@@ -28,7 +28,6 @@ from fastapi import (
     Form,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,16 +35,16 @@ from pydantic import BaseModel
 # =========================
 # Config
 # =========================
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
-JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days default
+JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env is required")
 
-# psycopg usually accepts both, but normalize just in case
+# normalize for psycopg
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
@@ -61,12 +60,14 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 # =========================
 # Cloudinary config
 # =========================
-CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
-CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "").strip()
-CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+CLOUDINARY_CLOUD_NAME = (os.environ.get("CLOUDINARY_CLOUD_NAME") or "").strip()
+CLOUDINARY_API_KEY = (os.environ.get("CLOUDINARY_API_KEY") or "").strip()
+CLOUDINARY_API_SECRET = (os.environ.get("CLOUDINARY_API_SECRET") or "").strip()
 
 if not (CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET):
-    raise RuntimeError("Cloudinary env vars are required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
+    raise RuntimeError(
+        "Cloudinary env vars required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET"
+    )
 
 cloudinary.config(
     cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -80,7 +81,7 @@ cloudinary.config(
 # DB helpers
 # =========================
 def db():
-    # new connection per request / action (simple + safe)
+    # simple: connection per use
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
@@ -136,6 +137,7 @@ def init_db() -> None:
                 );
                 """
             )
+
         conn.commit()
 
 
@@ -167,6 +169,7 @@ def ensure_default_chat_for(username: str) -> None:
                 """,
                 ("general", username, int(time.time())),
             )
+
         conn.commit()
 
 
@@ -274,7 +277,6 @@ def media_kind_from_mime(mime: str) -> str:
         return "image"
     if mime in ALLOWED_VIDEO_MIME:
         return "video"
-    # fallback by prefix
     if mime.startswith("image/"):
         return "image"
     if mime.startswith("video/"):
@@ -285,9 +287,8 @@ def media_kind_from_mime(mime: str) -> str:
 # =========================
 # App
 # =========================
-init_db()
-
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -296,24 +297,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Frontend (index.html рядом с main.py или в /frontend)
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-INDEX_PATH = os.path.join(BASE_DIR, "index.html")
-if os.path.exists(os.path.join(FRONTEND_DIR, "index.html")):
-    INDEX_PATH = os.path.join(FRONTEND_DIR, "index.html")
-
-# mount static if folder exists
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-else:
-    app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
-
-
-@app.get("/", response_class=HTMLResponse)
-def index():
-    if os.path.exists(INDEX_PATH):
-        return FileResponse(INDEX_PATH)
-    return HTMLResponse("<h3>index.html not found</h3>", status_code=404)
+# init db on startup
+@app.on_event("startup")
+def _startup():
+    init_db()
 
 
 # =========================
@@ -555,7 +542,7 @@ async def upload_media(
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
 
-    # access check
+    # Access check
     with db() as conn:
         if not is_member(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
@@ -577,8 +564,6 @@ async def upload_media(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail=f"Слишком большой файл. Лимит: {MAX_UPLOAD_MB} MB")
 
-    # Upload to Cloudinary
-    # resource_type="auto" позволяет грузить и картинки и видео одной функцией
     folder = "mini_messenger"
     public_id = f"{folder}/{chat_id}/{int(time.time())}_{secrets.token_urlsafe(10)}"
 
@@ -598,7 +583,6 @@ async def upload_media(
 
     ts = int(time.time())
 
-    # store message in Postgres
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -710,3 +694,20 @@ async def ws_endpoint(ws: WebSocket):
         pass
     finally:
         remove_conn(chat_id, ws)
+
+
+# =========================
+# Frontend mount (IMPORTANT)
+# =========================
+# ВАЖНО: фронт у тебя в папке frontend/
+# Мы монтируем её на "/" так, чтобы / показывал index.html
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+
+if os.path.isdir(FRONTEND_DIR):
+    # html=True -> отдаёт index.html для "/"
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+else:
+    # если папки нет в репо — будет понятно в ответе
+    @app.get("/")
+    def _no_frontend():
+        raise HTTPException(status_code=404, detail="frontend folder not found in repo")
