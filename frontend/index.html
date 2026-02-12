@@ -2,50 +2,185 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Mini Messenger</title>
   <style>
     :root{
       --bg:#0b1220; --card:#121a2b; --border:#24304a; --muted:rgba(230,238,252,.8);
       --btn:#1b2742; --btn2:#12284a;
+      --shadow: 0 18px 50px rgba(0,0,0,.5);
+      --radius: 14px;
     }
     *{ box-sizing:border-box; }
-    body { font-family: system-ui, Arial; margin: 0; background: var(--bg); color: #e6eefc; }
-    .wrap { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
-    .card { width: min(1100px, 100%); background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-    .top { display:flex; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border); align-items: center; justify-content: space-between; }
-    .top-left{ display:flex; gap:10px; align-items:center; }
-    .brand{ font-weight:700; letter-spacing:.2px; }
-    .pill{ font-size:12px; opacity:.9; padding: 4px 10px; border:1px solid var(--border); border-radius:999px; background:#0b1220; }
-    .top button { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--btn); color:#e6eefc; cursor:pointer; }
-    .top button:hover{ filter:brightness(1.08); }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, Arial;
+      background: var(--bg);
+      color: #e6eefc;
+      overflow: hidden; /* КЛЮЧ: страница не скроллится */
+    }
 
-    .grid { display:grid; grid-template-columns: 330px 1fr; height: 76vh; }
-    .sidebar { border-right: 1px solid var(--border); padding: 14px; display:flex; flex-direction: column; gap: 12px; min-width: 0; }
-    .chat { display:flex; flex-direction: column; }
-    .msgs { flex:1; overflow:auto; padding: 14px; display:flex; flex-direction: column; gap: 10px; }
-    .msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background:#0b1220; }
-    .me { align-self: flex-end; background: var(--btn2); }
-    .meta { font-size: 12px; opacity: .8; margin-bottom: 4px; }
-    .composer { display:flex; gap: 10px; padding: 14px; border-top: 1px solid var(--border); }
-    .composer input { flex:1; padding: 12px; border-radius: 12px; border: 1px solid var(--border); background:#0b1220; color:#e6eefc; }
-    .composer button { padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--btn); color:#e6eefc; cursor:pointer; }
-    .composer button:hover{ filter:brightness(1.08); }
+    /* App shell */
+    .wrap{
+      min-height: 100vh;
+      padding: 0;
+      display: block;
+    }
+    .card{
+      width: 100%;
+      min-height: 100vh;
+      background: var(--card);
+      border: 0;
+      border-radius: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    /* Top bar */
+    .top{
+      height: 58px;
+      flex: 0 0 auto;
+      display:flex;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(18,26,43,.9);
+      backdrop-filter: blur(6px);
+    }
+    .top-left{ display:flex; gap:10px; align-items:center; min-width: 0; }
+    .brand{ font-weight:700; letter-spacing:.2px; white-space: nowrap; }
+    .pill{
+      font-size:12px; opacity:.95; padding: 4px 10px;
+      border:1px solid var(--border); border-radius:999px; background:#0b1220;
+      white-space: nowrap;
+      max-width: 46vw; overflow:hidden; text-overflow: ellipsis;
+    }
+    .small { font-size: 12px; opacity: .85; word-break: break-word; }
 
     .row { display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
-    .small { font-size: 12px; opacity: .8; word-break: break-word; }
+
+    .btn{
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--btn);
+      color:#e6eefc;
+      cursor:pointer;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    .btn:hover{ filter:brightness(1.08); }
+    .btn:active{ transform: translateY(1px); }
+
+    /* Layout */
+    .grid{
+      flex: 1 1 auto;
+      min-height: 0; /* КЛЮЧ */
+      display:grid;
+      grid-template-columns: 330px 1fr;
+      height: calc(100vh - 58px);
+    }
+
+    .sidebar{
+      min-height: 0; /* КЛЮЧ */
+      border-right: 1px solid var(--border);
+      padding: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--card);
+      overflow: hidden;
+    }
+
+    .chat{
+      min-height: 0; /* КЛЮЧ */
+      display:flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .msgs{
+      flex: 1 1 auto;
+      min-height: 0; /* КЛЮЧ */
+      overflow: auto;
+      overscroll-behavior: contain;
+      padding: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .msg{
+      max-width: 85%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background:#0b1220;
+      word-break: break-word;
+    }
+    .me { align-self: flex-end; background: var(--btn2); }
+    .meta { font-size: 12px; opacity: .8; margin-bottom: 4px; }
+
+    .composer{
+      flex: 0 0 auto;
+      display:flex;
+      gap: 10px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: rgba(11,18,32,.75);
+      backdrop-filter: blur(6px);
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    }
+    .composer input{
+      flex: 1;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background:#0b1220;
+      color:#e6eefc;
+      outline:none;
+      font-size: 16px; /* iOS: не зумит */
+    }
+    .composer button{
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--btn);
+      color:#e6eefc;
+      cursor:pointer;
+      min-width: 86px;
+      touch-action: manipulation;
+    }
+    .composer button:hover{ filter:brightness(1.08); }
+
     .sep { height: 1px; background: var(--border); opacity:.8; margin: 6px 0; }
 
-    .chatlist { display:flex; flex-direction: column; gap: 6px; overflow:auto; padding-right: 4px; }
-    .chatitem {
+    .chatlist{
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      display:flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-right: 4px;
+      overscroll-behavior: contain;
+    }
+    .chatitem{
       display:flex; align-items: center; justify-content: space-between;
       gap: 8px;
-      padding: 10px 10px;
+      padding: 12px 10px;
       border: 1px solid var(--border);
       border-radius: 12px;
       background:#0b1220;
       cursor:pointer;
       min-width: 0;
+      touch-action: manipulation;
     }
     .chatitem:hover { filter: brightness(1.08); }
     .chatitem.active { background: var(--btn2); }
@@ -56,11 +191,12 @@
     /* Icon buttons */
     .iconbar{ display:flex; gap:8px; }
     .iconbtn{
-      width:36px; height:36px; border-radius:10px;
+      width:40px; height:40px; border-radius:12px;
       display:grid; place-items:center;
       border:1px solid var(--border);
       background:#0b1220; color:#e6eefc;
       cursor:pointer; user-select:none;
+      touch-action: manipulation;
     }
     .iconbtn:hover{ filter:brightness(1.12); }
     .iconbtn:active{ transform: translateY(1px); }
@@ -68,7 +204,7 @@
     /* Popover */
     .pop-wrap{ position: relative; }
     .popover{
-      position:absolute; top:44px; left:0;
+      position:absolute; top:48px; left:0;
       width: 300px;
       background: var(--card);
       border:1px solid var(--border);
@@ -83,27 +219,51 @@
     .popover .head b{ font-size: 13px; }
     .popover input{
       width:100%;
-      padding: 10px;
-      border-radius: 10px;
+      padding: 12px;
+      border-radius: 12px;
       border: 1px solid var(--border);
       background:#0b1220;
       color:#e6eefc;
       outline:none;
+      font-size: 16px;
     }
     .popover .actions{ display:flex; gap:8px; margin-top:10px; }
     .popover button{
       padding: 10px 12px;
-      border-radius: 10px;
+      border-radius: 12px;
       border: 1px solid var(--border);
       background: var(--btn);
       color:#e6eefc;
       cursor:pointer;
       flex:1;
+      touch-action: manipulation;
     }
     .popover button:hover{ filter:brightness(1.08); }
-    .xbtn{ width:28px; height:28px; border-radius:10px; border:1px solid var(--border); background:#0b1220; cursor:pointer; }
+    .xbtn{ width:32px; height:32px; border-radius:12px; border:1px solid var(--border); background:#0b1220; cursor:pointer; }
 
-    /* Modal overlay */
+    /* Scroll-to-bottom button */
+    .to-bottom{
+      position: absolute;
+      right: 12px;
+      bottom: calc(12px + 60px + env(safe-area-inset-bottom)); /* над composer */
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(11,18,32,.92);
+      color:#e6eefc;
+      display: none;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 12px 28px rgba(0,0,0,.35);
+      user-select: none;
+      touch-action: manipulation;
+      z-index: 30;
+    }
+    .to-bottom.show{ display:grid; }
+    .to-bottom:active{ transform: translateY(1px); }
+
+    /* AUTH Modal */
     .modal-overlay{
       position:fixed; inset:0;
       background: rgba(0,0,0,.55);
@@ -118,7 +278,7 @@
       border:1px solid var(--border);
       border-radius: 16px;
       overflow:hidden;
-      box-shadow: 0 18px 50px rgba(0,0,0,.5);
+      box-shadow: var(--shadow);
     }
     .modal-top{
       padding: 14px;
@@ -127,13 +287,14 @@
     }
     .modal-top .tabs{ display:flex; gap:8px; }
     .tab{
-      padding: 8px 12px;
+      padding: 10px 12px;
       border-radius: 12px;
       border:1px solid var(--border);
       background:#0b1220;
       cursor:pointer;
       font-size: 13px;
-      opacity:.9;
+      opacity:.95;
+      touch-action: manipulation;
     }
     .tab.active{ background: var(--btn2); }
     .modal-body{ padding: 14px; display:flex; flex-direction: column; gap: 10px; }
@@ -144,6 +305,7 @@
       background:#0b1220;
       color:#e6eefc;
       outline:none;
+      font-size: 16px;
     }
     .modal-body .btnrow{ display:flex; gap:10px; margin-top: 6px; }
     .modal-body button{
@@ -154,31 +316,67 @@
       color:#e6eefc;
       cursor:pointer;
       flex:1;
+      touch-action: manipulation;
     }
     .modal-body button:hover{ filter:brightness(1.08); }
     .modal-hint{ font-size: 12px; opacity:.85; }
     .err{ font-size: 12px; color:#ffd3d3; opacity:.95; }
+
+    /* ===== Mobile drawer mode ===== */
+    .mobile-only { display:none; }
+
+    .drawer-backdrop{
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      display:none;
+      z-index: 120;
+    }
+    .drawer-backdrop.open{ display:block; }
+
+    @media (max-width: 900px){
+      .grid{ grid-template-columns: 1fr; }
+      .sidebar{
+        position: fixed;
+        top: 58px;
+        left: 0;
+        width: min(360px, 92vw);
+        height: calc(100vh - 58px);
+        transform: translateX(-110%);
+        transition: transform .2s ease;
+        z-index: 130;
+        border-right: 1px solid var(--border);
+        box-shadow: 0 18px 50px rgba(0,0,0,.45);
+      }
+      .sidebar.open{ transform: translateX(0); }
+      .mobile-only{ display:inline-flex; }
+      .brand{ display:none; }
+      .msgs{ padding: 12px; }
+      .msg{ max-width: 92%; }
+    }
   </style>
 </head>
 
 <body>
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
   <div class="wrap">
     <div class="card">
       <div class="top">
         <div class="top-left">
+          <button class="btn mobile-only" id="btnToggleSidebar" type="button">☰ Chats</button>
           <div class="brand">Mini Messenger</div>
           <div class="pill" id="whoami">not logged in</div>
           <div class="small" id="status"></div>
         </div>
         <div class="row">
-          <button id="btnOpenAuth" type="button">Login / Register</button>
-          <button id="btnLogout" type="button" style="display:none;">Logout</button>
+          <button class="btn" id="btnOpenAuth" type="button">Login / Register</button>
+          <button class="btn" id="btnLogout" type="button" style="display:none;">Logout</button>
         </div>
       </div>
 
       <div class="grid">
-        <!-- Sidebar -->
-        <div class="sidebar">
+        <!-- Sidebar (drawer on mobile) -->
+        <div class="sidebar" id="sidebar">
           <div class="row" style="justify-content: space-between;">
             <div class="row" style="gap:10px;">
               <div><b>Chats</b></div>
@@ -222,7 +420,7 @@
           <div class="sep"></div>
 
           <div class="row">
-            <button id="btnLoadHistory" type="button">Load history</button>
+            <button class="btn" id="btnLoadHistory" type="button">Load history</button>
           </div>
 
           <div class="sep"></div>
@@ -237,6 +435,10 @@
         <!-- Chat -->
         <div class="chat">
           <div class="msgs" id="msgs"></div>
+
+          <!-- кнопка вниз -->
+          <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
+
           <div class="composer">
             <input id="text" placeholder="Напиши сообщение..." />
             <button id="btnSend" type="button">Send</button>
@@ -281,6 +483,29 @@
   let activeChatId = localStorage.getItem("activeChatId") || "general";
   let activeChatTitle = "general";
 
+  // ===== Mobile drawer =====
+  const sidebar = $("sidebar");
+  const backdrop = $("drawerBackdrop");
+  function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
+  function openSidebar(){ sidebar.classList.add("open"); backdrop.classList.add("open"); }
+  function closeSidebar(){ sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
+  function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
+
+  // ===== Scroll helpers + button =====
+  const toBottomBtn = $("btnToBottom");
+
+  function isNearBottom(el, px=140){
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
+  }
+  function scrollToBottom(el){
+    el.scrollTop = el.scrollHeight;
+  }
+  function updateToBottom(){
+    const box = $("msgs");
+    const show = !isNearBottom(box);
+    toBottomBtn.classList.toggle("show", show);
+  }
+
   // ---- helpers ----
   function setStatus(s){ $("status").textContent = s; }
   function setWhoami(){
@@ -290,15 +515,23 @@
   }
 
   function addSystem(text) {
+    const box = $("msgs");
+    const stick = isNearBottom(box);
+
     const div = document.createElement("div");
     div.className = "msg";
     div.style.opacity = ".85";
     div.textContent = text;
-    $("msgs").appendChild(div);
-    $("msgs").scrollTop = $("msgs").scrollHeight;
+    box.appendChild(div);
+
+    if (stick) scrollToBottom(box);
+    updateToBottom();
   }
 
   function addMsg({sender, text, created_at}) {
+    const box = $("msgs");
+    const stick = isNearBottom(box);
+
     const div = document.createElement("div");
     div.className = "msg" + (sender === me ? " me" : "");
     const meta = document.createElement("div");
@@ -309,8 +542,10 @@
     body.textContent = text;
     div.appendChild(meta);
     div.appendChild(body);
-    $("msgs").appendChild(div);
-    $("msgs").scrollTop = $("msgs").scrollHeight;
+    box.appendChild(div);
+
+    if (stick) scrollToBottom(box);
+    updateToBottom();
   }
 
   async function api(path, method="GET", body=null) {
@@ -460,21 +695,19 @@
       item.appendChild(left);
       item.appendChild(badge);
 
-      item.onclick = () => selectChat(c.id);
+      item.onclick = () => {
+        selectChat(c.id);
+        if (isMobile()) closeSidebar();
+      };
       list.appendChild(item);
     }
   }
 
   async function refreshChats() {
-    if (!token) {
-      openAuth("login");
-      return;
-    }
+    if (!token) { openAuth("login"); return; }
     const data = await api(`/api/chats`);
     chats = data.chats || [];
-    if (!chats.find(c => c.id === "general")) {
-      chats.push({id:"general", type:"group", title:"general", created_at: 0});
-    }
+    if (!chats.find(c => c.id === "general")) chats.push({id:"general", type:"group", title:"general", created_at: 0});
     renderChatList();
   }
 
@@ -488,6 +721,7 @@
     addSystem(`✅ Created: ${data.chat.title}`);
     await refreshChats();
     selectChat(data.chat.id);
+    if (isMobile()) closeSidebar();
   }
 
   async function createDM(){
@@ -500,6 +734,7 @@
     addSystem(`✅ ${data.chat.title}`);
     await refreshChats();
     selectChat(data.chat.id);
+    if (isMobile()) closeSidebar();
   }
 
   function selectChat(chatId) {
@@ -529,18 +764,18 @@
   // ---- messages ----
   async function loadHistory() {
     if (!token) return openAuth("login");
-    $("msgs").innerHTML = "";
+    const box = $("msgs");
+    box.innerHTML = "";
     addSystem(`📥 Loading: ${activeChatTitle}...`);
     const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
-    $("msgs").innerHTML = "";
+    box.innerHTML = "";
     for (const m of data.messages) addMsg(m);
+    scrollToBottom(box);
+    updateToBottom();
   }
 
   function connectWS() {
-    if (!token) {
-      openAuth("login");
-      return;
-    }
+    if (!token) { openAuth("login"); return; }
 
     if (ws) ws.close();
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -584,24 +819,23 @@
     setWhoami();
     addSystem("👋 Logged out");
 
-    // lock UI again
+    closeSidebar();
     openAuth("login");
   }
 
   // ---- wiring ----
+  $("btnToggleSidebar").onclick = () => toggleSidebar();
+  $("drawerBackdrop").onclick = () => closeSidebar();
+  window.addEventListener("resize", ()=> { if (!isMobile()) closeSidebar(); });
+
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
 
-  // IMPORTANT: cannot close auth modal if not authed
-  $("btnCloseAuth").onclick = () => {
-    if (!token) return;
-    closeAuth();
-  };
-  // IMPORTANT: do NOT close on overlay click
-  // $("authOverlay").addEventListener("click", ... )  <-- removed by design
+  // cannot close auth modal if not authed
+  $("btnCloseAuth").onclick = () => { if (!token) return; closeAuth(); };
 
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
@@ -630,9 +864,13 @@
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
-  // ESC closes popovers (not auth)
+  // scroll events -> show/hide arrow
+  $("msgs").addEventListener("scroll", () => updateToBottom(), { passive: true });
+  toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
+
+  // ESC closes sidebar/popovers (not auth)
   document.addEventListener("keydown", (e)=>{
-    if (e.key === "Escape") closePopovers();
+    if (e.key === "Escape") { closePopovers(); closeSidebar(); }
   });
 
   // ---- bootstrap session ----
@@ -652,7 +890,6 @@
         selectChat(activeChatId);
       })
       .catch(() => {
-        // token invalid / expired
         token = "";
         localStorage.removeItem("token");
         localStorage.removeItem("username");
