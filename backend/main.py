@@ -8,7 +8,7 @@ import hashlib
 import hmac
 import secrets
 import re
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,6 @@ DB_PATH = os.path.join(BASE_DIR, "app.db")
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 JWT_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
-CHAT_ID = "general"  # MVP one chat
 
 
 # =========================
@@ -48,6 +47,30 @@ def init_db() -> None:
             username TEXT UNIQUE NOT NULL,
             pass_hash TEXT NOT NULL,
             created_at INTEGER NOT NULL
+        );
+        """
+    )
+
+    # chats: id=uuid string, type=group|dm
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chats (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_members (
+            chat_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            joined_at INTEGER NOT NULL,
+            PRIMARY KEY(chat_id, username)
         );
         """
     )
@@ -146,8 +169,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Frontend serving
-# IMPORTANT: we DO NOT mount "/" to avoid intercepting "/api/*"
 FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
 
 
@@ -156,29 +177,63 @@ def index():
     return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
-# If later you add real static files, access them via /static/...
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 # =========================
-# Models
+# Schemas
 # =========================
 class AuthIn(BaseModel):
     username: str
     password: str
 
 
+class ChatCreateIn(BaseModel):
+    title: str
+
+
+class DMCreateIn(BaseModel):
+    username: str  # other user
+
+
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 
 
-# =========================
-# API
-# =========================
-@app.get("/api/health")
-def health():
-    return {"ok": True, "ts": int(time.time())}
+def require_user(token: str) -> str:
+    payload = jwt_verify(token)
+    return payload["sub"]
 
 
+def make_id(prefix: str = "") -> str:
+    return prefix + secrets.token_urlsafe(12)
+
+
+def is_member(conn: sqlite3.Connection, chat_id: str, username: str) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM chat_members WHERE chat_id=? AND username=? LIMIT 1", (chat_id, username))
+    return cur.fetchone() is not None
+
+
+def ensure_default_chat_for(conn: sqlite3.Connection, username: str) -> None:
+    # Create global chat once, add all users on first login/register
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM chats WHERE id='general'")
+    row = cur.fetchone()
+    if not row:
+        cur.execute(
+            "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(?,?,?,?,?)",
+            ("general", "group", "general", "system", int(time.time())),
+        )
+    cur.execute(
+        "INSERT OR IGNORE INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
+        ("general", username, int(time.time())),
+    )
+    conn.commit()
+
+
+# =========================
+# Auth
+# =========================
 @app.post("/api/register")
 def register(data: AuthIn):
     username = data.username.strip()
@@ -198,6 +253,9 @@ def register(data: AuthIn):
             (username, hash_password(password), int(time.time())),
         )
         conn.commit()
+
+        ensure_default_chat_for(conn, username)
+
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Такой username уже занят.")
     finally:
@@ -214,59 +272,182 @@ def login(data: AuthIn):
     cur = conn.cursor()
     cur.execute("SELECT username, pass_hash FROM users WHERE username = ?", (username,))
     row = cur.fetchone()
-    conn.close()
-
     if not row or not verify_password(data.password, row["pass_hash"]):
+        conn.close()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    ensure_default_chat_for(conn, username)
+    conn.close()
+
     now = int(time.time())
-    token = jwt_sign({"sub": row["username"], "iat": now, "exp": now + JWT_TTL_SECONDS})
-    return {"token": token, "username": row["username"]}
+    token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
+    return {"token": token, "username": username}
 
 
-@app.get("/api/messages")
-def list_messages(token: str):
-    payload = jwt_verify(token)
-    _ = payload["sub"]
+# =========================
+# Chats
+# =========================
+@app.get("/api/chats")
+def list_chats(token: str):
+    me = require_user(token)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT c.id, c.type, c.title, c.created_at
+        FROM chats c
+        JOIN chat_members m ON m.chat_id = c.id
+        WHERE m.username = ?
+        ORDER BY c.created_at DESC
+        """,
+        (me,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return {"chats": [dict(r) for r in rows]}
+
+
+@app.post("/api/chats")
+def create_chat(token: str, data: ChatCreateIn):
+    me = require_user(token)
+    title = data.title.strip()
+    if not title or len(title) > 40:
+        raise HTTPException(status_code=400, detail="Название чата: 1-40 символов.")
+
+    chat_id = make_id("c_")
+    now = int(time.time())
 
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, chat_id, sender, text, created_at "
-        "FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 100",
-        (CHAT_ID,),
+        "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(?,?,?,?,?)",
+        (chat_id, "group", title, me, now),
+    )
+    cur.execute(
+        "INSERT INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
+        (chat_id, me, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"chat": {"id": chat_id, "type": "group", "title": title, "created_at": now}}
+
+
+@app.post("/api/chats/dm")
+def create_dm(token: str, data: DMCreateIn):
+    me = require_user(token)
+    other = data.username.strip()
+    if not USERNAME_RE.match(other):
+        raise HTTPException(status_code=400, detail="Некорректный username.")
+    if other == me:
+        raise HTTPException(status_code=400, detail="Нельзя создать DM с самим собой.")
+
+    conn = db()
+    cur = conn.cursor()
+
+    # check other exists
+    cur.execute("SELECT 1 FROM users WHERE username=? LIMIT 1", (other,))
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден.")
+
+    # Find existing dm by title key "dm:me|other" (sorted)
+    a, b = sorted([me, other])
+    dm_key = f"dm:{a}|{b}"
+
+    cur.execute("SELECT id, title, created_at FROM chats WHERE type='dm' AND title=?", (dm_key,))
+    row = cur.fetchone()
+    if row:
+        chat_id = row["id"]
+        created_at = row["created_at"]
+    else:
+        chat_id = make_id("d_")
+        created_at = int(time.time())
+        cur.execute(
+            "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(?,?,?,?,?)",
+            (chat_id, "dm", dm_key, me, created_at),
+        )
+
+    # ensure membership
+    cur.execute(
+        "INSERT OR IGNORE INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
+        (chat_id, me, int(time.time())),
+    )
+    cur.execute(
+        "INSERT OR IGNORE INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
+        (chat_id, other, int(time.time())),
+    )
+    conn.commit()
+    conn.close()
+
+    # nice title for UI
+    return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at}}
+
+
+# =========================
+# Messages
+# =========================
+@app.get("/api/messages")
+def list_messages(token: str, chat_id: str):
+    me = require_user(token)
+
+    conn = db()
+    if not is_member(conn, chat_id, me):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, chat_id, sender, text, created_at FROM messages WHERE chat_id=? ORDER BY id DESC LIMIT 100",
+        (chat_id,),
     )
     rows = cur.fetchall()
     conn.close()
-
     msgs = [dict(r) for r in rows][::-1]
-    return {"chat_id": CHAT_ID, "messages": msgs}
+    return {"chat_id": chat_id, "messages": msgs}
 
 
 # =========================
-# WebSocket
+# WebSocket: per chat
 # =========================
-connections: Dict[str, Set[WebSocket]] = {CHAT_ID: set()}
+connections: Dict[str, Set[WebSocket]] = {}
+
+
+def add_conn(chat_id: str, ws: WebSocket) -> None:
+    connections.setdefault(chat_id, set()).add(ws)
+
+
+def remove_conn(chat_id: str, ws: WebSocket) -> None:
+    if chat_id in connections:
+        connections[chat_id].discard(ws)
+        if not connections[chat_id]:
+            connections.pop(chat_id, None)
 
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    token = ws.query_params.get("token")
-    if not token:
+    token = ws.query_params.get("token") or ""
+    chat_id = ws.query_params.get("chat_id") or ""
+
+    if not token or not chat_id:
         await ws.close(code=4401)
         return
 
     try:
         payload = jwt_verify(token)
+        username = payload["sub"]
     except HTTPException:
         await ws.close(code=4401)
         return
 
-    username = payload["sub"]
-    await ws.accept()
-    connections[CHAT_ID].add(ws)
+    conn = db()
+    if not is_member(conn, chat_id, username):
+        conn.close()
+        await ws.close(code=4403)
+        return
+    conn.close()
 
-    await broadcast(CHAT_ID, {"type": "presence", "user": username, "status": "online", "ts": int(time.time())})
+    await ws.accept()
+    add_conn(chat_id, ws)
 
     try:
         while True:
@@ -283,33 +464,32 @@ async def ws_endpoint(ws: WebSocket):
                 continue
 
             ts = int(time.time())
+
+            # store
             conn = db()
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO messages(chat_id, sender, text, created_at) VALUES(?,?,?,?)",
-                (CHAT_ID, username, text, ts),
+                (chat_id, username, text, ts),
             )
             conn.commit()
             msg_id = cur.lastrowid
             conn.close()
 
-            await broadcast(
-                CHAT_ID,
-                {
-                    "type": "message",
-                    "id": msg_id,
-                    "chat_id": CHAT_ID,
-                    "sender": username,
-                    "text": text,
-                    "created_at": ts,
-                },
-            )
+            event = {
+                "type": "message",
+                "id": msg_id,
+                "chat_id": chat_id,
+                "sender": username,
+                "text": text,
+                "created_at": ts,
+            }
+            await broadcast(chat_id, event)
 
     except WebSocketDisconnect:
         pass
     finally:
-        connections[CHAT_ID].discard(ws)
-        await broadcast(CHAT_ID, {"type": "presence", "user": username, "status": "offline", "ts": int(time.time())})
+        remove_conn(chat_id, ws)
 
 
 async def broadcast(chat_id: str, event: dict) -> None:
@@ -320,4 +500,4 @@ async def broadcast(chat_id: str, event: dict) -> None:
         except Exception:
             dead.append(c)
     for d in dead:
-        connections[chat_id].discard(d)
+        remove_conn(chat_id, d)
