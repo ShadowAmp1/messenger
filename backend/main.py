@@ -37,9 +37,9 @@ from pydantic import BaseModel
 # backend/main.py
 # frontend/index.html
 # =========================
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # ./backend
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # ./
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # ./frontend
 
 
 # =========================
@@ -50,14 +50,43 @@ JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is required")
+    raise RuntimeError("DATABASE_URL env is required")
 
-CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
-CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "").strip()
-CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+# Normalize for psycopg
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "25"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime"}  # mov
+# ✅ Аудио (voice notes)
+ALLOWED_AUDIO_MIME = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/aac",
+    "audio/x-m4a",
+    "audio/m4a",
+}
+
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+
+
+# =========================
+# Cloudinary config
+# =========================
+CLOUDINARY_CLOUD_NAME = (os.environ.get("CLOUDINARY_CLOUD_NAME") or "").strip()
+CLOUDINARY_API_KEY = (os.environ.get("CLOUDINARY_API_KEY") or "").strip()
+CLOUDINARY_API_SECRET = (os.environ.get("CLOUDINARY_API_SECRET") or "").strip()
 
 if not (CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET):
-    raise RuntimeError("Cloudinary env vars are required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET")
+    raise RuntimeError(
+        "Cloudinary env vars required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET"
+    )
 
 cloudinary.config(
     cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -66,170 +95,204 @@ cloudinary.config(
     secure=True,
 )
 
-USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
-
 
 # =========================
 # DB helpers
 # =========================
 def db():
+    # new connection per action (simple + safe)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
-def init_db():
+def init_db() -> None:
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
+                    id BIGSERIAL PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
                     pass_hash TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 );
-            """)
-            cur.execute("""
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS chats (
                     id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    type TEXT NOT NULL,
+                    type TEXT NOT NULL,         -- 'group' | 'dm'
+                    title TEXT NOT NULL,        -- group: title; dm: dm:key
                     created_by TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 );
-            """)
-            cur.execute("""
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS chat_members (
                     chat_id TEXT NOT NULL,
                     username TEXT NOT NULL,
+                    joined_at BIGINT NOT NULL,
                     PRIMARY KEY(chat_id, username)
                 );
-            """)
-            cur.execute("""
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS messages (
                     id BIGSERIAL PRIMARY KEY,
                     chat_id TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    text TEXT NOT NULL DEFAULT '',
-                    media_url TEXT NOT NULL DEFAULT '',
-                    media_kind TEXT NOT NULL DEFAULT '',
-                    created_at BIGINT NOT NULL
+                    sender TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    media_kind TEXT,
+                    media_url TEXT,
+                    media_mime TEXT,
+                    media_name TEXT
                 );
-            """)
-            conn.commit()
+                """
+            )
+        conn.commit()
+
+
+def is_member(conn, chat_id: str, username: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM chat_members WHERE chat_id=%s AND username=%s LIMIT 1",
+            (chat_id, username),
+        )
+        return cur.fetchone() is not None
+
+
+def ensure_general_for(username: str) -> None:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM chats WHERE id='general'")
+            if cur.fetchone() is None:
+                now = int(time.time())
+                cur.execute(
+                    "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
+                    ("general", "group", "General", "system", now),
+                )
+
+            now = int(time.time())
+            cur.execute(
+                """
+                INSERT INTO chat_members(chat_id, username, joined_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                ("general", username, now),
+            )
+        conn.commit()
 
 
 # =========================
-# JWT (simple)
+# JWT helpers
 # =========================
 def b64url(data: bytes) -> str:
     import base64
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("utf-8")
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def b64url_decode(s: str) -> bytes:
+def b64urldecode(s: str) -> bytes:
     import base64
     pad = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode((s + pad).encode("utf-8"))
+    return base64.urlsafe_b64decode(s + pad)
 
 
 def jwt_sign(payload: dict) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
-    h = b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    p = b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    msg = f"{h}.{p}".encode("utf-8")
-    sig = hmac.new(JWT_SECRET.encode("utf-8"), msg, hashlib.sha256).digest()
-    return f"{h}.{p}.{b64url(sig)}"
+    header_b64 = b64url(json.dumps(header, separators=(",", ":")).encode())
+    payload_b64 = b64url(json.dumps(payload, separators=(",", ":")).encode())
+    msg = f"{header_b64}.{payload_b64}".encode("ascii")
+    sig = hmac.new(JWT_SECRET.encode(), msg, hashlib.sha256).digest()
+    return f"{header_b64}.{payload_b64}.{b64url(sig)}"
 
 
 def jwt_verify(token: str) -> dict:
     try:
-        h, p, s = token.split(".")
-        msg = f"{h}.{p}".encode("utf-8")
-        sig = b64url_decode(s)
-        exp_sig = hmac.new(JWT_SECRET.encode("utf-8"), msg, hashlib.sha256).digest()
-        if not hmac.compare_digest(sig, exp_sig):
-            raise ValueError("bad signature")
-        payload = json.loads(b64url_decode(p))
-        if payload.get("exp", 0) < int(time.time()):
-            raise ValueError("expired")
-        return payload
-    except Exception:
+        header_b64, payload_b64, sig_b64 = token.split(".", 2)
+    except ValueError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+    msg = f"{header_b64}.{payload_b64}".encode("ascii")
+    expected = hmac.new(JWT_SECRET.encode(), msg, hashlib.sha256).digest()
+    if not hmac.compare_digest(b64url(expected), sig_b64):
+        raise HTTPException(status_code=401, detail="Bad signature")
 
-def hash_password(pw: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.sha256((salt + pw).encode("utf-8")).hexdigest()
-    return f"{salt}${h}"
-
-
-def verify_password(pw: str, stored: str) -> bool:
-    try:
-        salt, h = stored.split("$", 1)
-        return hashlib.sha256((salt + pw).encode("utf-8")).hexdigest() == h
-    except Exception:
-        return False
+    payload = json.loads(b64urldecode(payload_b64))
+    if int(payload.get("exp", 0)) < int(time.time()):
+        raise HTTPException(status_code=401, detail="Token expired")
+    return payload
 
 
-def get_token_user(auth: Optional[str] = Header(default=None)) -> str:
-    if not auth or not auth.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="No token")
-    tok = auth.split(" ", 1)[1].strip()
-    payload = jwt_verify(tok)
-    return payload["u"]
+def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2:
+        return None
+    scheme, value = parts[0].strip(), parts[1].strip()
+    if scheme.lower() != "bearer" or not value:
+        return None
+    return value
+
+
+def get_token(request: Request, authorization: Optional[str] = Header(default=None)) -> str:
+    token = _extract_bearer(authorization)
+    if token:
+        return token
+    token_q = (request.query_params.get("token") or "").strip()
+    if token_q:
+        return token_q
+    raise HTTPException(status_code=401, detail="Missing token")
+
+
+def get_current_username(token: str = Depends(get_token)) -> str:
+    return jwt_verify(token)["sub"]
 
 
 # =========================
-# FastAPI app
+# Misc helpers
+# =========================
+def make_id(prefix: str = "") -> str:
+    return prefix + secrets.token_urlsafe(12)
+
+
+def media_kind_from_mime(mime: str) -> str:
+    mime = (mime or "").lower().strip()
+    if mime in ALLOWED_IMAGE_MIME or mime.startswith("image/"):
+        return "image"
+    if mime in ALLOWED_VIDEO_MIME or mime.startswith("video/"):
+        return "video"
+    if mime in ALLOWED_AUDIO_MIME or mime.startswith("audio/"):
+        return "audio"
+    return ""
+
+
+# =========================
+# App
 # =========================
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve frontend
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
-# init DB
-init_db()
+@app.on_event("startup")
+def _startup():
+    init_db()
 
 
 # =========================
-# WebSocket manager
-# =========================
-class WSManager:
-    def __init__(self):
-        self.clients: Set[WebSocket] = set()
-
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.clients.add(ws)
-
-    def disconnect(self, ws: WebSocket):
-        if ws in self.clients:
-            self.clients.remove(ws)
-
-    async def broadcast(self, data: dict):
-        dead = []
-        for c in list(self.clients):
-            try:
-                await c.send_text(json.dumps(data))
-            except Exception:
-                dead.append(c)
-        for c in dead:
-            self.disconnect(c)
-
-
-ws_manager = WSManager()
-
-
-# =========================
-# Models
+# Schemas
 # =========================
 class AuthIn(BaseModel):
     username: str
@@ -240,296 +303,460 @@ class ChatCreateIn(BaseModel):
     title: str
 
 
-class DmCreateIn(BaseModel):
+class DMCreateIn(BaseModel):
     username: str
 
 
-class MsgCreateIn(BaseModel):
+class MsgIn(BaseModel):
     chat_id: str
     text: str
 
 
 # =========================
-# Auth endpoints
+# Auth API
 # =========================
-@app.post("/api/auth/register")
+@app.post("/api/register")
 def register(data: AuthIn):
-    u = data.username.strip()
-    p = data.password.strip()
+    username = data.username.strip()
+    password = data.password
 
-    if not USERNAME_RE.match(u):
-        raise HTTPException(status_code=400, detail="Bad username (3-32 chars: letters/digits/_)")
-    if len(p) < 4:
-        raise HTTPException(status_code=400, detail="Password too short")
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status_code=400, detail="Username: 3-20 символов, только буквы/цифры/_.")
 
-    ph = hash_password(p)
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password: минимум 6 символов.")
+
     now = int(time.time())
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users(username, pass_hash, created_at) VALUES(%s,%s,%s)",
+                    (username, _hash_password(password), now),
+                )
+            conn.commit()
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=400, detail="Такой username уже занят.")
 
-    with db() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute("INSERT INTO users(username, pass_hash, created_at) VALUES (%s,%s,%s)", (u, ph, now))
-                conn.commit()
-            except Exception:
-                raise HTTPException(status_code=400, detail="Username already exists")
-
-    payload = {"u": u, "exp": int(time.time()) + JWT_TTL_SECONDS}
-    token = jwt_sign(payload)
-    return {"token": token, "username": u}
+    ensure_general_for(username)
+    return {"ok": True}
 
 
-@app.post("/api/auth/login")
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    h = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return f"{salt}${h}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, h = stored.split("$", 1)
+        return hashlib.sha256((salt + password).encode("utf-8")).hexdigest() == h
+    except Exception:
+        return False
+
+
+@app.post("/api/login")
 def login(data: AuthIn):
-    u = data.username.strip()
-    p = data.password.strip()
+    username = data.username.strip()
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE username=%s", (u,))
+            cur.execute("SELECT pass_hash FROM users WHERE username=%s", (username,))
             row = cur.fetchone()
-            if not row or not verify_password(p, row["pass_hash"]):
-                raise HTTPException(status_code=400, detail="Invalid credentials")
 
-    payload = {"u": u, "exp": int(time.time()) + JWT_TTL_SECONDS}
-    token = jwt_sign(payload)
-    return {"token": token, "username": u}
+    if not row or not _verify_password(data.password, row["pass_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    ensure_general_for(username)
+
+    now = int(time.time())
+    token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
+    return {"token": token, "username": username}
+
+
+@app.get("/api/me")
+def me(username: str = Depends(get_current_username)):
+    return {"username": username}
 
 
 # =========================
-# Chats
+# Chats API
 # =========================
-def make_chat_id() -> str:
-    return secrets.token_hex(12)
-
-
 @app.get("/api/chats")
-def list_chats(user: str = Depends(get_token_user)):
+def list_chats(username: str = Depends(get_current_username)):
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT c.*
+            cur.execute(
+                """
+                SELECT c.id, c.type, c.title, c.created_at
                 FROM chats c
-                JOIN chat_members m ON m.chat_id=c.id
+                JOIN chat_members m ON m.chat_id = c.id
                 WHERE m.username=%s
                 ORDER BY c.created_at DESC
-            """, (user,))
-            rows = cur.fetchall() or []
+                """,
+                (username,),
+            )
+            rows = cur.fetchall()
     return {"chats": rows}
 
 
 @app.post("/api/chats")
-async def create_chat(data: ChatCreateIn, user: str = Depends(get_token_user)):
+def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_username)):
     title = data.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Title required")
+    if not title or len(title) > 40:
+        raise HTTPException(status_code=400, detail="Название чата: 1-40 символов.")
 
-    chat_id = make_chat_id()
+    chat_id = make_id("c_")
     now = int(time.time())
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO chats(id,title,type,created_by,created_at) VALUES (%s,%s,%s,%s,%s)",
-                        (chat_id, title, "group", user, now))
-            cur.execute("INSERT INTO chat_members(chat_id,username) VALUES (%s,%s)", (chat_id, user))
-            conn.commit()
+            cur.execute(
+                "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
+                (chat_id, "group", title, username, now),
+            )
+            cur.execute(
+                """
+                INSERT INTO chat_members(chat_id, username, joined_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, username, now),
+            )
+        conn.commit()
 
-    await ws_manager.broadcast({"type": "chat_created", "chat": {"id": chat_id, "title": title, "type": "group"}})
-    return {"chat": {"id": chat_id, "title": title, "type": "group"}}
+    return {"chat": {"id": chat_id, "type": "group", "title": title, "created_at": now}}
 
 
 @app.post("/api/chats/dm")
-async def create_dm(data: DmCreateIn, user: str = Depends(get_token_user)):
+def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
     other = data.username.strip()
     if not USERNAME_RE.match(other):
-        raise HTTPException(status_code=400, detail="Bad username")
-    if other == user:
-        raise HTTPException(status_code=400, detail="Can't DM yourself")
+        raise HTTPException(status_code=400, detail="Некорректный username.")
+    if other == username:
+        raise HTTPException(status_code=400, detail="Нельзя создать DM с самим собой.")
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT username FROM users WHERE username=%s", (other,))
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="User not found")
+            cur.execute("SELECT 1 FROM users WHERE username=%s LIMIT 1", (other,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Пользователь не найден.")
 
-            # deterministic dm title key
-            a, b = sorted([user, other])
-            title = f"dm:{a}|{b}"
+            a, b = sorted([username, other])
+            dm_key = f"dm:{a}|{b}"
 
-            # check if exists
-            cur.execute("SELECT id FROM chats WHERE type='dm' AND title=%s", (title,))
+            cur.execute("SELECT id, created_at FROM chats WHERE type='dm' AND title=%s", (dm_key,))
             row = cur.fetchone()
             if row:
                 chat_id = row["id"]
+                created_at = row["created_at"]
             else:
-                chat_id = make_chat_id()
-                now = int(time.time())
-                cur.execute("INSERT INTO chats(id,title,type,created_by,created_at) VALUES (%s,%s,%s,%s,%s)",
-                            (chat_id, title, "dm", user, now))
-                cur.execute("INSERT INTO chat_members(chat_id,username) VALUES (%s,%s)", (chat_id, user))
-                cur.execute("INSERT INTO chat_members(chat_id,username) VALUES (%s,%s)", (chat_id, other))
-                conn.commit()
+                chat_id = make_id("d_")
+                created_at = int(time.time())
+                cur.execute(
+                    "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
+                    (chat_id, "dm", dm_key, username, created_at),
+                )
 
-    await ws_manager.broadcast({"type": "chat_created", "chat": {"id": chat_id, "title": title, "type": "dm"}})
-    return {"chat": {"id": chat_id, "title": title, "type": "dm"}}
+            now = int(time.time())
+            cur.execute(
+                """
+                INSERT INTO chat_members(chat_id, username, joined_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, username, now),
+            )
+            cur.execute(
+                """
+                INSERT INTO chat_members(chat_id, username, joined_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, other, now),
+            )
+
+        conn.commit()
+
+    return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at}}
 
 
 # =========================
-# Messages
+# Messages API
 # =========================
 @app.get("/api/messages")
-def list_messages(chat_id: str, user: str = Depends(get_token_user)):
+def list_messages(chat_id: str, username: str = Depends(get_current_username)):
     with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM chat_members WHERE chat_id=%s AND username=%s", (chat_id, user))
-            if not cur.fetchone():
-                raise HTTPException(status_code=403, detail="Not a member")
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
 
-            cur.execute("""
-                SELECT id, chat_id, username, text, media_url, media_kind, created_at
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name
                 FROM messages
                 WHERE chat_id=%s
                 ORDER BY id ASC
                 LIMIT 500
-            """, (chat_id,))
-            rows = cur.fetchall() or []
+                """,
+                (chat_id,),
+            )
+            rows = cur.fetchall()
+
     return {"messages": rows}
 
 
 @app.post("/api/messages")
-async def create_message(data: MsgCreateIn, user: str = Depends(get_token_user)):
-    chat_id = data.chat_id
+async def create_text_message(data: MsgIn, username: str = Depends(get_current_username)):
+    chat_id = (data.chat_id or "").strip()
     text = (data.text or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Text required")
 
-    now = int(time.time())
+    if not text or len(text) > 2000:
+        raise HTTPException(status_code=400, detail="Текст: 1-2000 символов.")
 
     with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+        ts = int(time.time())
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM chat_members WHERE chat_id=%s AND username=%s", (chat_id, user))
-            if not cur.fetchone():
-                raise HTTPException(status_code=403, detail="Not a member")
-
-            cur.execute("""
-                INSERT INTO messages(chat_id, username, text, media_url, media_kind, created_at)
-                VALUES (%s,%s,%s,'','',%s)
+            cur.execute(
+                """
+                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
+                VALUES(%s,%s,%s,%s,NULL,NULL,NULL,NULL)
                 RETURNING id
-            """, (chat_id, user, text, now))
+                """,
+                (chat_id, username, text, ts),
+            )
             msg_id = cur.fetchone()["id"]
-            conn.commit()
+        conn.commit()
 
-    message = {
+    event = {
+        "type": "message",
         "id": msg_id,
         "chat_id": chat_id,
-        "username": user,
+        "sender": username,
         "text": text,
-        "media_url": "",
-        "media_kind": "",
-        "created_at": now
+        "created_at": ts,
+        "media_kind": None,
+        "media_url": None,
+        "media_mime": None,
+        "media_name": None,
     }
-    await ws_manager.broadcast({"type": "message", "chat_id": chat_id, "message": message})
-    return {"ok": True, "message": message}
+    await broadcast(chat_id, event)
+    return {"message": event}
 
 
-@app.post("/api/messages/upload")
-async def upload_message(
+@app.post("/api/upload")
+async def upload(
     chat_id: str = Form(...),
-    caption: str = Form(""),
+    text: str = Form(""),
     file: UploadFile = File(...),
-    user: str = Depends(get_token_user),
+    username: str = Depends(get_current_username),
 ):
-    # membership check
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM chat_members WHERE chat_id=%s AND username=%s", (chat_id, user))
-            if not cur.fetchone():
-                raise HTTPException(status_code=403, detail="Not a member")
+    text = (text or "").strip()
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
 
-    # detect kind
-    ctype = (file.content_type or "").lower()
-    kind = ""
-    if ctype.startswith("image/"):
-        kind = "image"
-    elif ctype.startswith("video/"):
-        kind = "video"
-    elif ctype.startswith("audio/") or ctype in ("application/ogg", "application/octet-stream"):
-        kind = "audio"
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+    mime = (file.content_type or "").lower().strip()
+    kind = media_kind_from_mime(mime)
+
+    if kind == "image":
+        if mime and mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип изображения: {mime}")
+    elif kind == "video":
+        if mime and mime not in ALLOWED_VIDEO_MIME and not mime.startswith("video/"):
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип видео: {mime}")
+    elif kind == "audio":
+        if mime and mime not in ALLOWED_AUDIO_MIME and not mime.startswith("audio/"):
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип аудио: {mime}")
     else:
-        # allow some webm audio blobs
-        if file.filename.lower().endswith(".webm") or file.filename.lower().endswith(".ogg"):
-            kind = "audio"
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ctype}")
+        raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {mime or 'unknown'}")
 
-    # Cloudinary upload
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty file")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Пустой файл.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail=f"Слишком большой файл. Лимит: {MAX_UPLOAD_MB} MB")
 
-    # resource_type:
-    # - images => image
-    # - videos & audio often use 'video' on cloudinary
-    resource_type = "image" if kind == "image" else "video"
+    folder = "mini_messenger"
+    public_id = f"{folder}/{chat_id}/{int(time.time())}_{secrets.token_urlsafe(10)}"
 
-    up = cloudinary.uploader.upload(
-        raw,
-        resource_type=resource_type,
-        folder="messenger",
-        public_id=f"{int(time.time())}_{secrets.token_hex(6)}",
-        overwrite=False,
-    )
-    url = up.get("secure_url") or up.get("url") or ""
-    if not url:
-        raise HTTPException(status_code=500, detail="Upload failed")
+    try:
+        uploaded = cloudinary.uploader.upload(
+            data,
+            resource_type="auto",
+            public_id=public_id,
+            overwrite=False,
+            unique_filename=True,
+        )
+        media_url = uploaded.get("secure_url") or uploaded.get("url")
+        if not media_url:
+            raise RuntimeError("Cloudinary returned no url")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
 
-    now = int(time.time())
-    text = (caption or "").strip()
+    ts = int(time.time())
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO messages(chat_id, username, text, media_url, media_kind, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s)
+            cur.execute(
+                """
+                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
-            """, (chat_id, user, text, url, kind, now))
+                """,
+                (
+                    chat_id,
+                    username,
+                    text,
+                    ts,
+                    kind,
+                    media_url,
+                    mime,
+                    (file.filename or "")[:200],
+                ),
+            )
             msg_id = cur.fetchone()["id"]
-            conn.commit()
+        conn.commit()
 
-    message = {
+    event = {
+        "type": "message",
         "id": msg_id,
         "chat_id": chat_id,
-        "username": user,
+        "sender": username,
         "text": text,
-        "media_url": url,
+        "created_at": ts,
         "media_kind": kind,
-        "created_at": now
+        "media_url": media_url,
+        "media_mime": mime,
+        "media_name": (file.filename or "")[:200],
     }
-    await ws_manager.broadcast({"type": "message", "chat_id": chat_id, "message": message})
-    return {"ok": True, "message": message}
+
+    await broadcast(chat_id, event)
+    return {"message": event}
 
 
 # =========================
-# WebSocket endpoint
+# WebSocket connections
+# =========================
+CONNS: Dict[str, Set[WebSocket]] = {}
+
+
+def add_conn(chat_id: str, ws: WebSocket) -> None:
+    if chat_id not in CONNS:
+        CONNS[chat_id] = set()
+    CONNS[chat_id].add(ws)
+
+
+def remove_conn(chat_id: str, ws: WebSocket) -> None:
+    if chat_id in CONNS and ws in CONNS[chat_id]:
+        CONNS[chat_id].remove(ws)
+        if not CONNS[chat_id]:
+            del CONNS[chat_id]
+
+
+async def broadcast(chat_id: str, event: dict) -> None:
+    conns = list(CONNS.get(chat_id, set()))
+    dead: list[WebSocket] = []
+    for c in conns:
+        try:
+            await c.send_text(json.dumps(event))
+        except Exception:
+            dead.append(c)
+    for d in dead:
+        remove_conn(chat_id, d)
+
+
+# =========================
+# WebSocket (text messages)
 # =========================
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    token = ws.query_params.get("token", "")
-    if not token:
-        await ws.close(code=1008)
-        return
-    try:
-        payload = jwt_verify(token)
-        _user = payload["u"]
-    except Exception:
-        await ws.close(code=1008)
+    token = (ws.query_params.get("token") or "").strip()
+    chat_id = (ws.query_params.get("chat_id") or "").strip()
+
+    if not token or not chat_id:
+        await ws.close(code=4401)
         return
 
-    await ws_manager.connect(ws)
+    try:
+        username = jwt_verify(token)["sub"]
+    except HTTPException:
+        await ws.close(code=4401)
+        return
+
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            await ws.close(code=4403)
+            return
+
+    await ws.accept()
+    add_conn(chat_id, ws)
+
     try:
         while True:
-            # keep alive / ignore client messages
-            await ws.receive_text()
+            raw = await ws.receive_text()
+            data = json.loads(raw)
+
+            if data.get("type") != "message":
+                continue
+
+            text = (data.get("text") or "").strip()
+            if not text or len(text) > 2000:
+                continue
+
+            ts = int(time.time())
+
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
+                        VALUES(%s,%s,%s,%s,NULL,NULL,NULL,NULL)
+                        RETURNING id
+                        """,
+                        (chat_id, username, text, ts),
+                    )
+                    msg_id = cur.fetchone()["id"]
+                conn.commit()
+
+            event = {
+                "type": "message",
+                "id": msg_id,
+                "chat_id": chat_id,
+                "sender": username,
+                "text": text,
+                "created_at": ts,
+                "media_kind": None,
+                "media_url": None,
+                "media_mime": None,
+                "media_name": None,
+            }
+            await broadcast(chat_id, event)
+
     except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
-    except Exception:
-        ws_manager.disconnect(ws)
+        pass
+    finally:
+        remove_conn(chat_id, ws)
+
+
+# =========================
+# Frontend serve (MONOREPO)  — MUST BE LAST
+# =========================
+if not os.path.isdir(FRONTEND_DIR):
+    @app.get("/")
+    def _no_frontend():
+        return {
+            "error": "frontend folder not found",
+            "expected_path": FRONTEND_DIR,
+            "hint": "Repo should contain: frontend/index.html рядом с backend/",
+        }
+else:
+    # Mount at "/" AFTER all API routes, otherwise POST /api/* may become 405 (StaticFiles).
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
