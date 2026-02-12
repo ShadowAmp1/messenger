@@ -18,25 +18,22 @@
 
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
-
     body{
       margin:0;
       font-family: system-ui, Arial;
       background: var(--bg);
       color:#e6eefc;
-      overflow: hidden; /* КЛЮЧ: страница не скроллится */
+      overflow: hidden; /* страница не скроллится */
     }
 
-    /* ===== Layout shell ===== */
+    /* ===== Shell ===== */
     .wrap{
-      height: 100dvh; /* iOS Safari fix */
+      height: 100dvh;
       padding: 16px;
       display:flex;
       align-items:center;
       justify-content:center;
     }
-
-    /* fallback для старого iOS */
     @supports (-webkit-touch-callout: none) {
       html{ height: -webkit-fill-available; }
       .wrap{ height: -webkit-fill-available; }
@@ -54,42 +51,33 @@
       min-height: 0;
     }
 
-    /* ===== Top bar (safe-area aware) ===== */
+    /* ===== Top bar (safe-area) ===== */
     .top{
       flex: 0 0 auto;
       display:flex;
       gap:10px;
       align-items:center;
       justify-content: space-between;
-      padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px; /* КЛЮЧ: ниже на iPhone */
+      padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
       border-bottom: 1px solid var(--border);
       background: rgba(18,26,43,.92);
       backdrop-filter: blur(6px);
       z-index: 50;
     }
-
-    .top-left{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width: 0;
-    }
-
+    .top-left{ display:flex; align-items:center; gap:10px; min-width:0; }
     .brand{ font-weight:700; white-space:nowrap; }
     .pill{
-      font-size:12px;
-      opacity:.95;
+      font-size:12px; opacity:.95;
       padding: 4px 10px;
       border:1px solid var(--border);
       border-radius:999px;
       background:#0b1220;
       white-space:nowrap;
-      max-width: 42vw;
+      max-width: 46vw;
       overflow:hidden;
       text-overflow: ellipsis;
     }
     .small{ font-size:12px; opacity:.85; color: var(--muted); }
-
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 
     .btn{
@@ -111,7 +99,7 @@
       min-height: 0;
       display:grid;
       grid-template-columns: 330px 1fr;
-      height: auto; /* КЛЮЧ: не считаем высоту вручную */
+      height: auto;
     }
 
     /* ===== Sidebar ===== */
@@ -122,10 +110,9 @@
       display:flex;
       flex-direction: column;
       gap: 12px;
-      overflow: hidden; /* скролл внутри chatlist */
+      overflow: hidden;
       background: var(--card);
     }
-
     .sep{ height: 1px; background: var(--border); opacity:.8; margin: 6px 0; }
 
     .chatlist{
@@ -174,55 +161,6 @@
     }
     .iconbtn:hover{ filter:brightness(1.12); }
     .iconbtn:active{ transform: translateY(1px); }
-
-    /* Desktop popovers only */
-    .pop-wrap{ position: relative; }
-    .popover{
-      position:absolute;
-      top: 48px;
-      right: 0;
-      width: 320px;
-      max-width: min(320px, 86vw);
-      background: var(--card);
-      border:1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px;
-      box-shadow: 0 12px 30px rgba(0,0,0,.35);
-      display:none;
-      z-index: 20;
-    }
-    .popover.open{ display:block; }
-    .popover .head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-    .popover .head b{ font-size: 13px; }
-    .popover input{
-      width:100%;
-      padding: 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background:#0b1220;
-      color:#e6eefc;
-      outline:none;
-      font-size: 16px;
-    }
-    .popover .actions{ display:flex; gap:8px; margin-top:10px; }
-    .popover button{
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--btn);
-      color:#e6eefc;
-      cursor:pointer;
-      flex:1;
-      touch-action: manipulation;
-    }
-    .xbtn{
-      width:32px; height:32px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:#0b1220;
-      color:#e6eefc;
-      cursor:pointer;
-    }
 
     /* ===== Chat ===== */
     .chat{
@@ -273,7 +211,7 @@
       background:#0b1220;
       color:#e6eefc;
       outline:none;
-      font-size: 16px; /* iOS: не зумит */
+      font-size: 16px;
     }
     .composer button{
       min-width: 86px;
@@ -366,8 +304,16 @@
     }
     .err{ font-size: 12px; color:#ffd3d3; opacity:.95; display:none; }
     .modal-hint{ font-size: 12px; opacity:.85; color: var(--muted); }
+    .xbtn{
+      width:32px; height:32px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:#0b1220;
+      color:#e6eefc;
+      cursor:pointer;
+    }
 
-    /* ===== Mobile: drawer + sheet ===== */
+    /* ===== Drawer (mobile chats menu) ===== */
     .mobile-only{ display:none; }
 
     .drawer-backdrop{
@@ -378,7 +324,7 @@
     }
     .drawer-backdrop.open{ display:block; }
 
-    /* Bottom sheet (mobile create) */
+    /* ===== Create Sheet (единственное окно создания) ===== */
     .sheet-overlay{
       position: fixed; inset:0;
       background: rgba(0,0,0,.45);
@@ -386,7 +332,7 @@
       z-index: 400;
       padding: 12px;
     }
-    .sheet-overlay.open{ display:flex; align-items:flex-end; justify-content:center; }
+    .sheet-overlay.open{ display:flex; align-items:center; justify-content:center; } /* ПК: по центру */
     .sheet{
       width: min(520px, 100%);
       background: var(--card);
@@ -429,6 +375,7 @@
       touch-action: manipulation;
     }
 
+    /* ===== Mobile rules ===== */
     @media (max-width: 900px){
       .wrap{ padding: 0; height: 100dvh; }
       .card{
@@ -445,7 +392,7 @@
 
       .sidebar{
         position: fixed;
-        top: 0; /* мы учитываем safe-area в .top, поэтому sidebar с 0 */
+        top: 0;
         left: 0;
         width: min(360px, 92vw);
         height: 100dvh;
@@ -453,16 +400,16 @@
         transition: transform .2s ease;
         z-index: 130;
         box-shadow: 0 18px 50px rgba(0,0,0,.45);
-        /* Важно: внутри sidebar есть .topbar? нет. поэтому даём отступ сверху */
-        padding-top: calc(58px + env(safe-area-inset-top)); /* чтобы не залезло под top */
+        padding-top: calc(58px + env(safe-area-inset-top));
       }
       .sidebar.open{ transform: translateX(0); }
 
-      /* На телефоне popover запрещаем полностью */
-      .popover{ display:none !important; }
-
       .msgs{ padding: 12px; }
       .msg{ max-width: 92%; }
+
+      /* На телефоне sheet снизу (bottom-sheet) */
+      .sheet-overlay.open{ align-items:flex-end; justify-content:center; }
+      .sheet{ border-radius: 18px 18px 0 0; }
     }
   </style>
 </head>
@@ -470,7 +417,7 @@
 <body>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
-  <div class="wrap">
+  <div class="wrap" id="appRoot">
     <div class="card">
       <div class="top">
         <div class="top-left">
@@ -491,38 +438,8 @@
           <div class="row" style="justify-content: space-between;">
             <div><b>Chats</b></div>
             <div class="iconbar">
-              <div class="pop-wrap">
-                <div class="iconbtn" id="btnOpenCreateGroup" title="New group chat">➕</div>
-                <!-- Desktop popover only -->
-                <div class="popover" id="popGroup">
-                  <div class="head">
-                    <b>Новый групповой чат</b>
-                    <button class="xbtn" id="btnCloseGroup" type="button">✕</button>
-                  </div>
-                  <input id="groupTitle" placeholder="Название (например: work)" />
-                  <div class="actions">
-                    <button id="btnCreateGroup" type="button">Create</button>
-                  </div>
-                  <div class="small" style="margin-top:8px;">Создаст чат и переключит тебя в него.</div>
-                </div>
-              </div>
-
-              <div class="pop-wrap">
-                <div class="iconbtn" id="btnOpenCreateDM" title="New DM">💬</div>
-                <!-- Desktop popover only -->
-                <div class="popover" id="popDM">
-                  <div class="head">
-                    <b>Новый DM</b>
-                    <button class="xbtn" id="btnCloseDM" type="button">✕</button>
-                  </div>
-                  <input id="dmUser" placeholder="Username пользователя" />
-                  <div class="actions">
-                    <button id="btnCreateDM" type="button">Open DM</button>
-                  </div>
-                  <div class="small" style="margin-top:8px;">Пользователь должен быть зарегистрирован.</div>
-                </div>
-              </div>
-
+              <div class="iconbtn" id="btnOpenCreateGroup" title="New group chat">➕</div>
+              <div class="iconbtn" id="btnOpenCreateDM" title="New DM">💬</div>
               <div class="iconbtn" id="btnRefreshChats" title="Refresh chats">⟳</div>
             </div>
           </div>
@@ -538,12 +455,12 @@
           <div class="chatlist" id="chatlist"></div>
 
           <div class="small" style="margin-top:auto;">
-            Советы: ➕ создаёт групповой чат, 💬 создаёт DM, ⟳ обновляет список.
+            Советы: ➕ групповой чат, 💬 DM, ⟳ обновить.
           </div>
         </div>
 
         <!-- Chat -->
-        <div class="chat">
+        <div class="chat" id="chatArea">
           <div class="msgs" id="msgs"></div>
           <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
 
@@ -580,7 +497,7 @@
     </div>
   </div>
 
-  <!-- MOBILE SHEET (create) -->
+  <!-- CREATE SHEET (group/dm) -->
   <div class="sheet-overlay" id="sheetOverlay" aria-hidden="true">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
@@ -590,7 +507,7 @@
       <div class="sheet-body">
         <input id="sheetInput" placeholder="" />
         <div class="sheet-actions">
-          <button id="btnSheetAction" type="button">OK</button>
+          <button id="btnSheetOk" type="button">OK</button>
         </div>
         <div class="small" id="sheetHint" style="opacity:.85;"></div>
       </div>
@@ -608,9 +525,7 @@
   let activeChatId = localStorage.getItem("activeChatId") || "general";
   let activeChatTitle = "general";
 
-  function isMobile(){
-    return window.matchMedia("(max-width: 900px)").matches;
-  }
+  function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
   /* ===== Drawer ===== */
   const sidebar = $("sidebar");
@@ -624,9 +539,7 @@
   function isNearBottom(el, px=160){
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
   }
-  function scrollToBottom(el){
-    el.scrollTop = el.scrollHeight;
-  }
+  function scrollToBottom(el){ el.scrollTop = el.scrollHeight; }
   function updateToBottom(){
     const box = $("msgs");
     toBottomBtn.classList.toggle("show", !isNearBottom(box));
@@ -743,32 +656,14 @@
     }
   }
 
-  /* ===== Desktop popover ===== */
-  function closePopovers(){
-    $("popGroup").classList.remove("open");
-    $("popDM").classList.remove("open");
-  }
-  function toggleDesktopPopover(id){
-    const el = $(id);
-    const isOpen = el.classList.contains("open");
-    closePopovers();
-    if (!isOpen) el.classList.add("open");
-  }
-
-  document.addEventListener("click", (e) => {
-    const groupWrap = $("btnOpenCreateGroup").parentElement;
-    const dmWrap = $("btnOpenCreateDM").parentElement;
-    if (!groupWrap.contains(e.target) && !dmWrap.contains(e.target)) closePopovers();
-  });
-
-  /* ===== Mobile sheet ===== */
+  /* ===== Create sheet (единственное окно создания) ===== */
   const sheet = {
     overlay: $("sheetOverlay"),
     title: $("sheetTitle"),
     input: $("sheetInput"),
     hint: $("sheetHint"),
-    ok: $("btnSheetAction"),
-    mode: null
+    ok: $("btnSheetOk"),
+    mode: null // "group" | "dm"
   };
 
   function openSheet(mode){
@@ -781,14 +676,13 @@
       sheet.input.placeholder = "Название (например: work)";
       sheet.hint.textContent = "Создаст чат и переключит тебя в него.";
       sheet.ok.textContent = "Create";
-      sheet.input.value = "";
     } else {
       sheet.title.textContent = "Новый DM";
       sheet.input.placeholder = "Username пользователя";
       sheet.hint.textContent = "Пользователь должен быть зарегистрирован.";
       sheet.ok.textContent = "Open DM";
-      sheet.input.value = "";
     }
+    sheet.input.value = "";
     setTimeout(()=> sheet.input.focus(), 50);
   }
 
@@ -798,13 +692,30 @@
     sheet.mode = null;
   }
 
+  async function createGroupChat(title){
+    const t = (title || "").trim();
+    if (!t) return addSystem("⚠️ Введи название чата.");
+    const data = await api("/api/chats", "POST", {title: t});
+    addSystem(`✅ Created: ${data.chat.title}`);
+    await refreshChats();
+    selectChat(data.chat.id);
+  }
+
+  async function createDM(user){
+    const u = (user || "").trim();
+    if (!u) return addSystem("⚠️ Введи username.");
+    const data = await api("/api/chats/dm", "POST", {username: u});
+    addSystem(`✅ ${data.chat.title}`);
+    await refreshChats();
+    selectChat(data.chat.id);
+  }
+
   /* ===== Chats ===== */
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
 
     const ordered = [...chats].sort((a,b) => (a.id === "general" ? -1 : 0) + (b.id === "general" ? 1 : 0));
-
     for (const c of ordered){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
@@ -857,24 +768,6 @@
     chats = data.chats || [];
     if (!chats.find(c => c.id === "general")) chats.push({id:"general", type:"group", title:"general", created_at:0});
     renderChatList();
-  }
-
-  async function createGroupChat(title){
-    const t = (title || "").trim();
-    if (!t) return addSystem("⚠️ Введи название чата.");
-    const data = await api("/api/chats", "POST", {title: t});
-    addSystem(`✅ Created: ${data.chat.title}`);
-    await refreshChats();
-    selectChat(data.chat.id);
-  }
-
-  async function createDM(user){
-    const u = (user || "").trim();
-    if (!u) return addSystem("⚠️ Введи username.");
-    const data = await api("/api/chats/dm", "POST", {username: u});
-    addSystem(`✅ ${data.chat.title}`);
-    await refreshChats();
-    selectChat(data.chat.id);
   }
 
   function selectChat(chatId){
@@ -952,15 +845,55 @@
 
     $("chatlist").innerHTML = "";
     $("msgs").innerHTML = "";
-
     setStatus("");
     setWhoami();
     addSystem("👋 Logged out");
 
     closeSidebar();
-    closePopovers();
     closeSheet();
     openAuth("login");
+  }
+
+  /* ===== Swipe to open/close sidebar (mobile) ===== */
+  function setupSwipe(){
+    const root = $("appRoot");
+    let startX = 0, startY = 0, tracking = false, startedOnEdge = false;
+
+    root.addEventListener("touchstart", (e) => {
+      if (!isMobile()) return;
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      tracking = true;
+      startedOnEdge = startX <= 24; // левый край
+    }, { passive: true });
+
+    root.addEventListener("touchmove", (e) => {
+      if (!tracking || !isMobile()) return;
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+
+      // если движение больше вертикальное — не считаем свайпом
+      if (Math.abs(dy) > Math.abs(dx)) return;
+
+      // открытие: только если начали с левого края
+      if (startedOnEdge && dx > 40) {
+        openSidebar();
+        tracking = false;
+      }
+
+      // закрытие: если меню открыто и свайп влево
+      if (sidebar.classList.contains("open") && dx < -40) {
+        closeSidebar();
+        tracking = false;
+      }
+    }, { passive: true });
+
+    root.addEventListener("touchend", ()=> { tracking = false; }, { passive: true });
+    root.addEventListener("touchcancel", ()=> { tracking = false; }, { passive: true });
   }
 
   /* ===== Wiring ===== */
@@ -978,61 +911,20 @@
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
-  // Create buttons: mobile -> sheet, desktop -> popover
+  // Create (sheet only)
   $("btnOpenCreateGroup").onclick = () => {
     if (!token) return openAuth("login");
-    if (isMobile()){
-      closePopovers();
-      openSheet("group");
-    } else {
-      closeSheet();
-      toggleDesktopPopover("popGroup");
-      setTimeout(()=> $("groupTitle").focus(), 30);
-    }
+    openSheet("group");
   };
-
   $("btnOpenCreateDM").onclick = () => {
     if (!token) return openAuth("login");
-    if (isMobile()){
-      closePopovers();
-      openSheet("dm");
-    } else {
-      closeSheet();
-      toggleDesktopPopover("popDM");
-      setTimeout(()=> $("dmUser").focus(), 30);
-    }
+    openSheet("dm");
   };
 
-  $("btnCloseGroup").onclick = () => closePopovers();
-  $("btnCloseDM").onclick = () => closePopovers();
-
-  $("btnCreateGroup").onclick = async () => {
-    try{
-      const title = $("groupTitle").value;
-      $("groupTitle").value = "";
-      closePopovers();
-      await createGroupChat(title);
-      if (isMobile()) closeSidebar();
-    }catch(e){ addSystem("❌ " + e.message); }
-  };
-
-  $("btnCreateDM").onclick = async () => {
-    try{
-      const u = $("dmUser").value;
-      $("dmUser").value = "";
-      closePopovers();
-      await createDM(u);
-      if (isMobile()) closeSidebar();
-    }catch(e){ addSystem("❌ " + e.message); }
-  };
-
-  $("groupTitle").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateGroup").click(); });
-  $("dmUser").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateDM").click(); });
-
-  // Sheet
   $("btnCloseSheet").onclick = () => closeSheet();
   $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
-  sheet.ok.onclick = async () => {
+
+  $("btnSheetOk").onclick = async () => {
     try{
       const value = sheet.input.value;
       const mode = sheet.mode;
@@ -1042,7 +934,7 @@
       if (isMobile()) closeSidebar();
     }catch(e){ addSystem("❌ " + e.message); }
   };
-  sheet.input.addEventListener("keydown", (e)=>{ if (e.key === "Enter") sheet.ok.click(); });
+  sheet.input.addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
   $("btnRefreshChats").onclick = () => refreshChats().catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
@@ -1050,22 +942,20 @@
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e)=>{ if (e.key === "Enter") send(); });
 
-  // Arrow down
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
 
-  // ESC
   document.addEventListener("keydown", (e)=>{
     if (e.key === "Escape"){
-      closePopovers();
       closeSidebar();
       closeSheet();
     }
   });
 
-  /* ===== Bootstrap session ===== */
+  setupSwipe();
   setWhoami();
 
+  /* ===== Bootstrap session ===== */
   if (token){
     addSystem("🔁 Checking session...");
     api("/api/me")
