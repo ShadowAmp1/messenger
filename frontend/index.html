@@ -5,90 +5,223 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Mini Messenger</title>
   <style>
-    body { font-family: system-ui, Arial; margin: 0; background: #0b1220; color: #e6eefc; }
+    :root{
+      --bg:#0b1220; --card:#121a2b; --border:#24304a; --muted:rgba(230,238,252,.8);
+      --btn:#1b2742; --btn2:#12284a;
+    }
+    *{ box-sizing:border-box; }
+    body { font-family: system-ui, Arial; margin: 0; background: var(--bg); color: #e6eefc; }
     .wrap { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
-    .card { width: min(1060px, 100%); background: #121a2b; border: 1px solid #24304a; border-radius: 14px; overflow: hidden; }
-    .top { display:flex; gap: 10px; padding: 14px; border-bottom: 1px solid #24304a; align-items: center; }
-    .top input { flex:1; padding: 10px; border-radius: 10px; border: 1px solid #24304a; background:#0b1220; color:#e6eefc; }
-    .top button { padding: 10px 14px; border-radius: 10px; border: 1px solid #24304a; background:#1b2742; color:#e6eefc; cursor:pointer; }
-    .grid { display:grid; grid-template-columns: 320px 1fr; height: 74vh; }
-    .sidebar { border-right: 1px solid #24304a; padding: 14px; display:flex; flex-direction: column; gap: 12px; }
+    .card { width: min(1100px, 100%); background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .top { display:flex; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border); align-items: center; justify-content: space-between; }
+    .top-left{ display:flex; gap:10px; align-items:center; }
+    .brand{ font-weight:700; letter-spacing:.2px; }
+    .pill{ font-size:12px; opacity:.9; padding: 4px 10px; border:1px solid var(--border); border-radius:999px; background:#0b1220; }
+    .top button { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--btn); color:#e6eefc; cursor:pointer; }
+    .top button:hover{ filter:brightness(1.08); }
+
+    .grid { display:grid; grid-template-columns: 330px 1fr; height: 76vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 14px; display:flex; flex-direction: column; gap: 12px; min-width: 0; }
     .chat { display:flex; flex-direction: column; }
     .msgs { flex:1; overflow:auto; padding: 14px; display:flex; flex-direction: column; gap: 10px; }
-    .msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; }
-    .me { align-self: flex-end; background:#12284a; }
+    .msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background:#0b1220; }
+    .me { align-self: flex-end; background: var(--btn2); }
     .meta { font-size: 12px; opacity: .8; margin-bottom: 4px; }
-    .composer { display:flex; gap: 10px; padding: 14px; border-top: 1px solid #24304a; }
-    .composer input { flex:1; padding: 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; color:#e6eefc; }
-    .composer button { padding: 12px 16px; border-radius: 12px; border: 1px solid #24304a; background:#1b2742; color:#e6eefc; cursor:pointer; }
-    .hint { font-size: 13px; opacity: .9; }
-    .row { display:flex; gap: 8px; flex-wrap: wrap; }
+    .composer { display:flex; gap: 10px; padding: 14px; border-top: 1px solid var(--border); }
+    .composer input { flex:1; padding: 12px; border-radius: 12px; border: 1px solid var(--border); background:#0b1220; color:#e6eefc; }
+    .composer button { padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--btn); color:#e6eefc; cursor:pointer; }
+    .composer button:hover{ filter:brightness(1.08); }
+
+    .row { display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .small { font-size: 12px; opacity: .8; word-break: break-word; }
-    .sep { height: 1px; background:#24304a; opacity:.8; margin: 6px 0; }
+    .sep { height: 1px; background: var(--border); opacity:.8; margin: 6px 0; }
 
     .chatlist { display:flex; flex-direction: column; gap: 6px; overflow:auto; padding-right: 4px; }
     .chatitem {
       display:flex; align-items: center; justify-content: space-between;
       gap: 8px;
       padding: 10px 10px;
-      border: 1px solid #24304a;
+      border: 1px solid var(--border);
       border-radius: 12px;
       background:#0b1220;
       cursor:pointer;
+      min-width: 0;
     }
     .chatitem:hover { filter: brightness(1.08); }
-    .chatitem.active { background:#12284a; }
-    .badge { font-size: 11px; opacity:.9; padding: 2px 8px; border: 1px solid #24304a; border-radius: 999px; }
-    .title { font-weight: 600; }
-    .muted { opacity: .85; }
+    .chatitem.active { background: var(--btn2); }
+    .title { font-weight: 650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sub { font-size:11px; opacity:.75; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .badge { font-size: 11px; opacity:.9; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+
+    /* Icon buttons */
+    .iconbar{ display:flex; gap:8px; }
+    .iconbtn{
+      width:36px; height:36px; border-radius:10px;
+      display:grid; place-items:center;
+      border:1px solid var(--border);
+      background:#0b1220; color:#e6eefc;
+      cursor:pointer; user-select:none;
+    }
+    .iconbtn:hover{ filter:brightness(1.12); }
+    .iconbtn:active{ transform: translateY(1px); }
+
+    /* Popover */
+    .pop-wrap{ position: relative; }
+    .popover{
+      position:absolute; top:44px; left:0;
+      width: 300px;
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.35);
+      display:none;
+      z-index: 20;
+    }
+    .popover.open{ display:block; }
+    .popover .head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .popover .head b{ font-size: 13px; }
+    .popover input{
+      width:100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background:#0b1220;
+      color:#e6eefc;
+      outline:none;
+    }
+    .popover .actions{ display:flex; gap:8px; margin-top:10px; }
+    .popover button{
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--btn);
+      color:#e6eefc;
+      cursor:pointer;
+      flex:1;
+    }
+    .popover button:hover{ filter:brightness(1.08); }
+    .xbtn{ width:28px; height:28px; border-radius:10px; border:1px solid var(--border); background:#0b1220; cursor:pointer; }
+
+    /* Modal overlay */
+    .modal-overlay{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,.55);
+      display:none;
+      z-index: 999;
+      padding: 18px;
+    }
+    .modal-overlay.open{ display:grid; place-items:center; }
+    .modal{
+      width: min(520px, 100%);
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 16px;
+      overflow:hidden;
+      box-shadow: 0 18px 50px rgba(0,0,0,.5);
+    }
+    .modal-top{
+      padding: 14px;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .modal-top .tabs{ display:flex; gap:8px; }
+    .tab{
+      padding: 8px 12px;
+      border-radius: 12px;
+      border:1px solid var(--border);
+      background:#0b1220;
+      cursor:pointer;
+      font-size: 13px;
+      opacity:.9;
+    }
+    .tab.active{ background: var(--btn2); }
+    .modal-body{ padding: 14px; display:flex; flex-direction: column; gap: 10px; }
+    .modal-body input{
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background:#0b1220;
+      color:#e6eefc;
+      outline:none;
+    }
+    .modal-body .btnrow{ display:flex; gap:10px; margin-top: 6px; }
+    .modal-body button{
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--btn);
+      color:#e6eefc;
+      cursor:pointer;
+      flex:1;
+    }
+    .modal-body button:hover{ filter:brightness(1.08); }
+    .modal-hint{ font-size: 12px; opacity:.85; }
+    .err{ font-size: 12px; color:#ffd3d3; opacity:.95; }
   </style>
 </head>
 
 <body>
   <div class="wrap">
     <div class="card">
-      <!-- Auth bar -->
       <div class="top">
-        <input id="username" placeholder="username" />
-        <input id="password" placeholder="password" type="password" />
-        <button id="btnRegister" type="button">Register</button>
-        <button id="btnLogin" type="button">Login</button>
-        <button id="btnLogout" type="button">Logout</button>
+        <div class="top-left">
+          <div class="brand">Mini Messenger</div>
+          <div class="pill" id="whoami">not logged in</div>
+          <div class="small" id="status"></div>
+        </div>
+        <div class="row">
+          <button id="btnOpenAuth" type="button">Login / Register</button>
+          <button id="btnLogout" type="button" style="display:none;">Logout</button>
+        </div>
       </div>
 
       <div class="grid">
         <!-- Sidebar -->
         <div class="sidebar">
-          <div>
-            <div class="row" style="justify-content: space-between; align-items: baseline;">
+          <div class="row" style="justify-content: space-between;">
+            <div class="row" style="gap:10px;">
               <div><b>Chats</b></div>
-              <div class="small" id="whoami"></div>
             </div>
-            <div class="small" id="status"></div>
-          </div>
 
-          <div class="sep"></div>
+            <div class="iconbar">
+              <div class="pop-wrap">
+                <div class="iconbtn" id="btnOpenCreateGroup" title="New group chat">➕</div>
+                <div class="popover" id="popGroup">
+                  <div class="head">
+                    <b>Новый групповой чат</b>
+                    <button class="xbtn" id="btnCloseGroup" type="button">✕</button>
+                  </div>
+                  <input id="groupTitle" placeholder="Название (например: work)" />
+                  <div class="actions">
+                    <button id="btnCreateGroup" type="button">Create</button>
+                  </div>
+                  <div class="modal-hint" style="margin-top:8px;">Создаст чат и переключит тебя в него.</div>
+                </div>
+              </div>
 
-          <div>
-            <div class="hint"><b>Создать групповой чат</b></div>
-            <div class="row" style="margin-top:8px;">
-              <input id="newChatTitle" placeholder="например: work" style="flex:1; padding:10px; border-radius:10px; border:1px solid #24304a; background:#0b1220; color:#e6eefc;">
-              <button id="btnCreateChat" type="button">Create</button>
-            </div>
-          </div>
+              <div class="pop-wrap">
+                <div class="iconbtn" id="btnOpenCreateDM" title="New DM">💬</div>
+                <div class="popover" id="popDM">
+                  <div class="head">
+                    <b>Новый DM</b>
+                    <button class="xbtn" id="btnCloseDM" type="button">✕</button>
+                  </div>
+                  <input id="dmUser" placeholder="Username пользователя" />
+                  <div class="actions">
+                    <button id="btnCreateDM" type="button">Open DM</button>
+                  </div>
+                  <div class="modal-hint" style="margin-top:8px;">Пользователь должен быть зарегистрирован.</div>
+                </div>
+              </div>
 
-          <div>
-            <div class="hint"><b>Личка (DM)</b></div>
-            <div class="row" style="margin-top:8px;">
-              <input id="dmUser" placeholder="username" style="flex:1; padding:10px; border-radius:10px; border:1px solid #24304a; background:#0b1220; color:#e6eefc;">
-              <button id="btnCreateDM" type="button">DM</button>
+              <div class="iconbtn" id="btnRefreshChats" title="Refresh chats">⟳</div>
             </div>
           </div>
 
           <div class="sep"></div>
 
           <div class="row">
-            <button id="btnRefreshChats" type="button">Refresh</button>
             <button id="btnLoadHistory" type="button">Load history</button>
           </div>
 
@@ -97,7 +230,7 @@
           <div class="chatlist" id="chatlist"></div>
 
           <div class="small" style="margin-top:auto;">
-            Подсказка: DM создаётся, если оба пользователя зарегистрированы.
+            Советы: ➕ создаёт групповой чат, 💬 создаёт DM, ⟳ обновляет список чатов.
           </div>
         </div>
 
@@ -108,6 +241,30 @@
             <input id="text" placeholder="Напиши сообщение..." />
             <button id="btnSend" type="button">Send</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL -->
+  <div class="modal-overlay" id="authOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-top">
+        <div class="tabs">
+          <div class="tab active" id="tabLogin">Login</div>
+          <div class="tab" id="tabRegister">Register</div>
+        </div>
+        <button class="xbtn" id="btnCloseAuth" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <input id="authUsername" placeholder="username (3-20: a-z 0-9 _)" autocomplete="username" />
+        <input id="authPassword" placeholder="password (мин 6)" type="password" autocomplete="current-password" />
+        <div class="err" id="authError" style="display:none;"></div>
+        <div class="btnrow">
+          <button id="btnAuthSubmit" type="button">Login</button>
+        </div>
+        <div class="modal-hint">
+          После успешного входа/регистрации окно закроется автоматически.
         </div>
       </div>
     </div>
@@ -124,9 +281,12 @@
   let activeChatId = localStorage.getItem("activeChatId") || "general";
   let activeChatTitle = "general";
 
+  // ---- helpers ----
   function setStatus(s){ $("status").textContent = s; }
   function setWhoami(){
     $("whoami").textContent = me ? `👤 ${me}` : "not logged in";
+    $("btnLogout").style.display = me ? "" : "none";
+    $("btnOpenAuth").style.display = me ? "none" : "";
   }
 
   function addSystem(text) {
@@ -159,87 +319,124 @@
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
-
     const res = await fetch(path, opts);
     const raw = await res.text();
-
     let data = {};
-    try { data = JSON.parse(raw); }
-    catch { data = { detail: raw }; }
-
-    if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText}: ${data.detail || raw}`);
-    }
+    try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${data.detail || raw}`);
     return data;
   }
 
-  // ---------------- Auth ----------------
-  async function registerUser() {
-    const username = $("username").value.trim();
-    const password = $("password").value;
-    await api("/api/register", "POST", {username, password});
-    addSystem("✅ Registered. Теперь нажми Login.");
+  // ---- modal auth ----
+  let authMode = "login"; // login | register
+
+  function openAuth(mode="login"){
+    authMode = mode;
+    $("authOverlay").classList.add("open");
+    $("authOverlay").setAttribute("aria-hidden", "false");
+    $("authError").style.display = "none";
+    $("authError").textContent = "";
+
+    setAuthTab(mode);
+
+    // prefill from top remembered
+    $("authUsername").value = me || $("authUsername").value || "";
+    $("authPassword").value = "";
+    setTimeout(()=> $("authUsername").focus(), 50);
   }
 
-  async function loginUser() {
-    const username = $("username").value.trim();
-    const password = $("password").value;
-
-    const data = await api("/api/login", "POST", {username, password});
-    token = data.token;
-    me = data.username;
-    localStorage.setItem("token", token);
-    localStorage.setItem("username", me);
-
-    setWhoami();
-    addSystem(`✅ Logged in as ${me}`);
-
-    await refreshChats();
-    // ensure active chat exists
-    if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
-    selectChat(activeChatId);
+  function closeAuth(){
+    $("authOverlay").classList.remove("open");
+    $("authOverlay").setAttribute("aria-hidden", "true");
   }
 
-  function logout() {
-    token = ""; me = "";
-    localStorage.removeItem("token");
-    localStorage.removeItem("username");
-    localStorage.removeItem("activeChatId");
-
-    if (ws) ws.close();
-    ws = null;
-
-    chats = [];
-    activeChatId = "general";
-    activeChatTitle = "general";
-
-    $("chatlist").innerHTML = "";
-    $("msgs").innerHTML = "";
-    setStatus("");
-    setWhoami();
-    addSystem("👋 Logged out");
+  function setAuthTab(mode){
+    authMode = mode;
+    $("tabLogin").classList.toggle("active", mode === "login");
+    $("tabRegister").classList.toggle("active", mode === "register");
+    $("btnAuthSubmit").textContent = (mode === "login") ? "Login" : "Register";
+    $("authPassword").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
   }
 
-  // ---------------- Chats ----------------
+  function authError(msg){
+    $("authError").style.display = "";
+    $("authError").textContent = msg;
+  }
+
+  async function authSubmit(){
+    const username = $("authUsername").value.trim();
+    const password = $("authPassword").value;
+
+    $("authError").style.display = "none";
+    $("authError").textContent = "";
+
+    try{
+      if (authMode === "register") {
+        await api("/api/register", "POST", {username, password});
+        // после регистрации сразу логиним
+        const data = await api("/api/login", "POST", {username, password});
+        token = data.token;
+        me = data.username;
+      } else {
+        const data = await api("/api/login", "POST", {username, password});
+        token = data.token;
+        me = data.username;
+      }
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("username", me);
+
+      setWhoami();
+      closeAuth();
+      addSystem(`✅ Logged in as ${me}`);
+
+      await refreshChats();
+      if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
+      selectChat(activeChatId);
+
+    }catch(e){
+      authError(e.message);
+    }
+  }
+
+  // ---- popovers ----
+  function closePopovers(){
+    $("popGroup").classList.remove("open");
+    $("popDM").classList.remove("open");
+  }
+  function togglePopover(id){
+    const el = $(id);
+    const isOpen = el.classList.contains("open");
+    closePopovers();
+    if (!isOpen) el.classList.add("open");
+  }
+
+  document.addEventListener("click", (e) => {
+    const groupWrap = $("btnOpenCreateGroup").parentElement;
+    const dmWrap = $("btnOpenCreateDM").parentElement;
+    if (!groupWrap.contains(e.target) && !dmWrap.contains(e.target)) closePopovers();
+  });
+
+  // ---- chats ----
   function renderChatList() {
     const list = $("chatlist");
     list.innerHTML = "";
 
-    // always show general on top
     const ordered = [...chats].sort((a,b) => (a.id === "general" ? -1 : 0) + (b.id === "general" ? 1 : 0));
 
     for (const c of ordered) {
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
+
       const left = document.createElement("div");
       left.style.display = "flex";
       left.style.flexDirection = "column";
       left.style.gap = "2px";
+      left.style.minWidth = "0";
 
       let title = c.title;
       let typeLabel = c.type;
 
-      // backend stores dm title as "dm:a|b", but /api/chats returns that raw title
       if (c.type === "dm" && c.title.startsWith("dm:")) {
         const parts = c.title.slice(3).split("|");
         const other = parts[0] === me ? parts[1] : parts[0];
@@ -251,7 +448,7 @@
       t1.textContent = title;
 
       const t2 = document.createElement("div");
-      t2.className = "small muted";
+      t2.className = "sub";
       t2.textContent = c.id;
 
       left.appendChild(t1);
@@ -271,34 +468,37 @@
 
   async function refreshChats() {
     if (!token) {
-      addSystem("⚠️ Сначала логин.");
+      addSystem("⚠️ Сначала Login.");
       return;
     }
     const data = await api(`/api/chats?token=${encodeURIComponent(token)}`);
     chats = data.chats || [];
-    // if for some reason "general" not returned, add it
     if (!chats.find(c => c.id === "general")) {
       chats.push({id:"general", type:"group", title:"general", created_at: 0});
     }
     renderChatList();
   }
 
-  async function createChat() {
-    if (!token) return addSystem("⚠️ Сначала логин.");
-    const title = $("newChatTitle").value.trim();
+  async function createGroupChat(){
+    if (!token) return openAuth("login");
+    const title = $("groupTitle").value.trim();
+    if (!title) return addSystem("⚠️ Введи название чата.");
     const data = await api(`/api/chats?token=${encodeURIComponent(token)}`, "POST", {title});
-    $("newChatTitle").value = "";
-    addSystem(`✅ Created chat: ${data.chat.title}`);
+    $("groupTitle").value = "";
+    closePopovers();
+    addSystem(`✅ Created: ${data.chat.title}`);
     await refreshChats();
     selectChat(data.chat.id);
   }
 
-  async function createDM() {
-    if (!token) return addSystem("⚠️ Сначала логин.");
+  async function createDM(){
+    if (!token) return openAuth("login");
     const username = $("dmUser").value.trim();
+    if (!username) return addSystem("⚠️ Введи username.");
     const data = await api(`/api/chats/dm?token=${encodeURIComponent(token)}`, "POST", {username});
     $("dmUser").value = "";
-    addSystem(`✅ DM ready: ${data.chat.title}`);
+    closePopovers();
+    addSystem(`✅ ${data.chat.title}`);
     await refreshChats();
     selectChat(data.chat.id);
   }
@@ -327,11 +527,11 @@
     loadHistory().catch(err => addSystem("❌ " + err.message));
   }
 
-  // ---------------- Messages ----------------
+  // ---- messages ----
   async function loadHistory() {
-    if (!token) return addSystem("⚠️ Сначала логин.");
+    if (!token) return openAuth("login");
     $("msgs").innerHTML = "";
-    addSystem(`📥 Loading history: ${activeChatTitle}...`);
+    addSystem(`📥 Loading: ${activeChatTitle}...`);
     const data = await api(`/api/messages?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`);
     $("msgs").innerHTML = "";
     for (const m of data.messages) addMsg(m);
@@ -344,41 +544,82 @@
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`);
 
-    ws.onopen = () => setStatus(`🟢 WS Connected • ${activeChatTitle}`);
-    ws.onclose = () => setStatus("🔴 WS Disconnected");
+    ws.onopen = () => setStatus(`🟢 WS • ${activeChatTitle}`);
+    ws.onclose = () => setStatus("🔴 WS disconnected");
     ws.onerror = () => setStatus("⚠️ WS error");
 
     ws.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
-      if (data.type === "message") {
-        // only add if message for current chat
-        if (data.chat_id === activeChatId) addMsg(data);
-      }
+      if (data.type === "message" && data.chat_id === activeChatId) addMsg(data);
     };
   }
 
   function send() {
     const text = $("text").value.trim();
     if (!text) return;
+    if (!token) return openAuth("login");
     if (!ws || ws.readyState !== 1) return addSystem("⚠️ Нет соединения WS");
     ws.send(JSON.stringify({type:"message", text}));
     $("text").value = "";
   }
 
-  // ---------------- UI wiring ----------------
-  $("btnRegister").onclick = () => registerUser().catch(e => addSystem("❌ " + e.message));
-  $("btnLogin").onclick = () => loginUser().catch(e => addSystem("❌ " + e.message));
+  function logout(){
+    token = ""; me = "";
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("activeChatId");
+
+    if (ws) ws.close();
+    ws = null;
+
+    chats = [];
+    activeChatId = "general";
+    activeChatTitle = "general";
+
+    $("chatlist").innerHTML = "";
+    $("msgs").innerHTML = "";
+    setStatus("");
+    setWhoami();
+    addSystem("👋 Logged out");
+  }
+
+  // ---- wiring ----
+  $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
 
+  $("tabLogin").onclick = () => setAuthTab("login");
+  $("tabRegister").onclick = () => setAuthTab("register");
+  $("btnCloseAuth").onclick = () => closeAuth();
+  $("authOverlay").addEventListener("click", (e)=>{ if (e.target === $("authOverlay")) closeAuth(); });
+
+  $("btnAuthSubmit").onclick = () => authSubmit();
+  $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
+
+  $("btnOpenCreateGroup").onclick = () => {
+    if (!token) return openAuth("login");
+    togglePopover("popGroup");
+    setTimeout(()=> $("groupTitle").focus(), 30);
+  };
+  $("btnCloseGroup").onclick = () => closePopovers();
+  $("btnCreateGroup").onclick = () => createGroupChat().catch(e=> addSystem("❌ " + e.message));
+  $("groupTitle").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateGroup").click(); });
+
+  $("btnOpenCreateDM").onclick = () => {
+    if (!token) return openAuth("login");
+    togglePopover("popDM");
+    setTimeout(()=> $("dmUser").focus(), 30);
+  };
+  $("btnCloseDM").onclick = () => closePopovers();
+  $("btnCreateDM").onclick = () => createDM().catch(e=> addSystem("❌ " + e.message));
+  $("dmUser").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateDM").click(); });
+
   $("btnRefreshChats").onclick = () => refreshChats().catch(e => addSystem("❌ " + e.message));
-  $("btnCreateChat").onclick = () => createChat().catch(e => addSystem("❌ " + e.message));
-  $("btnCreateDM").onclick = () => createDM().catch(e => addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e => addSystem("❌ " + e.message));
 
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
-  // ---------------- Auto restore session ----------------
+  // ---- restore session ----
   setWhoami();
   if (token) {
     addSystem(`🔁 Restoring session for ${me || "user"}...`);
@@ -389,7 +630,9 @@
       })
       .catch(() => {});
   } else {
-    addSystem("👋 Привет! Зарегистрируйся или залогинься.");
+    addSystem("👋 Привет! Нажми Login / Register сверху.");
+    // можно сразу открыть модалку:
+    // openAuth("login");
   }
 </script>
 </body>
