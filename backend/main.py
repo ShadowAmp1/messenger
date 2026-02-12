@@ -34,12 +34,10 @@ from pydantic import BaseModel
 
 # =========================
 # Paths (MONOREPO)
-# backend/main.py
-# frontend/index.html
 # =========================
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # ./backend
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # ./
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # ./frontend
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
 
 
 # =========================
@@ -52,7 +50,6 @@ DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env is required")
 
-# Normalize for psycopg
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
@@ -61,7 +58,6 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime"}  # mov
-# ✅ Аудио (voice notes)
 ALLOWED_AUDIO_MIME = {
     "audio/webm",
     "audio/ogg",
@@ -100,7 +96,6 @@ cloudinary.config(
 # DB helpers
 # =========================
 def db():
-    # new connection per action (simple + safe)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
@@ -121,8 +116,8 @@ def init_db() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS chats (
                     id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,         -- 'group' | 'dm'
-                    title TEXT NOT NULL,        -- group: title; dm: dm:key
+                    type TEXT NOT NULL,
+                    title TEXT NOT NULL,
                     created_by TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 );
@@ -170,36 +165,52 @@ def ensure_general_for(username: str) -> None:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM chats WHERE id='general'")
             if cur.fetchone() is None:
-                now = int(time.time())
                 cur.execute(
                     "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    ("general", "group", "General", "system", now),
+                    ("general", "group", "general", "system", int(time.time())),
                 )
 
-            now = int(time.time())
             cur.execute(
                 """
                 INSERT INTO chat_members(chat_id, username, joined_at)
                 VALUES (%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, now),
+                ("general", username, int(time.time())),
             )
         conn.commit()
 
 
 # =========================
-# JWT helpers
+# Password hashing (PBKDF2)
+# =========================
+def hash_password(password: str, salt: Optional[str] = None) -> str:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+    return f"pbkdf2_sha256$200000${salt}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        _, _, salt, _ = stored.split("$", 3)
+    except ValueError:
+        return False
+    return hmac.compare_digest(hash_password(password, salt), stored)
+
+
+# =========================
+# Minimal JWT HS256
 # =========================
 def b64url(data: bytes) -> str:
     import base64
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def b64urldecode(s: str) -> bytes:
+def b64urldecode(data: str) -> bytes:
     import base64
-    pad = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + pad)
+    pad = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode((data + pad).encode("ascii"))
 
 
 def jwt_sign(payload: dict) -> str:
@@ -254,9 +265,6 @@ def get_current_username(token: str = Depends(get_token)) -> str:
     return jwt_verify(token)["sub"]
 
 
-# =========================
-# Misc helpers
-# =========================
 def make_id(prefix: str = "") -> str:
     return prefix + secrets.token_urlsafe(12)
 
@@ -272,9 +280,6 @@ def media_kind_from_mime(mime: str) -> str:
     return ""
 
 
-# =========================
-# App
-# =========================
 app = FastAPI()
 
 app.add_middleware(
@@ -285,15 +290,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.on_event("startup")
 def _startup():
     init_db()
 
 
-# =========================
-# Schemas
-# =========================
 class AuthIn(BaseModel):
     username: str
     password: str
@@ -322,7 +323,6 @@ def register(data: AuthIn):
 
     if not USERNAME_RE.match(username):
         raise HTTPException(status_code=400, detail="Username: 3-20 символов, только буквы/цифры/_.")
-
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password: минимум 6 символов.")
 
@@ -332,28 +332,17 @@ def register(data: AuthIn):
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO users(username, pass_hash, created_at) VALUES(%s,%s,%s)",
-                    (username, _hash_password(password), now),
+                    (username, hash_password(password), now),
                 )
             conn.commit()
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=400, detail="Такой username уже занят.")
 
     ensure_general_for(username)
-    return {"ok": True}
 
-
-def _hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
-    return f"{salt}${h}"
-
-
-def _verify_password(password: str, stored: str) -> bool:
-    try:
-        salt, h = stored.split("$", 1)
-        return hashlib.sha256((salt + password).encode("utf-8")).hexdigest() == h
-    except Exception:
-        return False
+    # ✅ СРАЗУ выдаём токен (чтобы фронт не делал лишний /api/login)
+    token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
+    return {"token": token, "username": username}
 
 
 @app.post("/api/login")
@@ -365,7 +354,7 @@ def login(data: AuthIn):
             cur.execute("SELECT pass_hash FROM users WHERE username=%s", (username,))
             row = cur.fetchone()
 
-    if not row or not _verify_password(data.password, row["pass_hash"]):
+    if not row or not verify_password(data.password, row["pass_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     ensure_general_for(username)
@@ -497,14 +486,14 @@ def list_messages(chat_id: str, username: str = Depends(get_current_username)):
                 SELECT id, chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name
                 FROM messages
                 WHERE chat_id=%s
-                ORDER BY id ASC
-                LIMIT 500
+                ORDER BY id DESC
+                LIMIT 200
                 """,
                 (chat_id,),
             )
             rows = cur.fetchall()
 
-    return {"messages": rows}
+    return {"chat_id": chat_id, "messages": list(reversed(rows))}
 
 
 @app.post("/api/messages")
@@ -565,17 +554,7 @@ async def upload(
 
     mime = (file.content_type or "").lower().strip()
     kind = media_kind_from_mime(mime)
-
-    if kind == "image":
-        if mime and mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
-            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип изображения: {mime}")
-    elif kind == "video":
-        if mime and mime not in ALLOWED_VIDEO_MIME and not mime.startswith("video/"):
-            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип видео: {mime}")
-    elif kind == "audio":
-        if mime and mime not in ALLOWED_AUDIO_MIME and not mime.startswith("audio/"):
-            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип аудио: {mime}")
-    else:
+    if not kind:
         raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {mime or 'unknown'}")
 
     data = await file.read()
@@ -645,24 +624,19 @@ async def upload(
 # =========================
 # WebSocket connections
 # =========================
-CONNS: Dict[str, Set[WebSocket]] = {}
-
+connections: Dict[str, Set[WebSocket]] = {}
 
 def add_conn(chat_id: str, ws: WebSocket) -> None:
-    if chat_id not in CONNS:
-        CONNS[chat_id] = set()
-    CONNS[chat_id].add(ws)
-
+    connections.setdefault(chat_id, set()).add(ws)
 
 def remove_conn(chat_id: str, ws: WebSocket) -> None:
-    if chat_id in CONNS and ws in CONNS[chat_id]:
-        CONNS[chat_id].remove(ws)
-        if not CONNS[chat_id]:
-            del CONNS[chat_id]
-
+    if chat_id in connections:
+        connections[chat_id].discard(ws)
+        if not connections[chat_id]:
+            connections.pop(chat_id, None)
 
 async def broadcast(chat_id: str, event: dict) -> None:
-    conns = list(CONNS.get(chat_id, set()))
+    conns = list(connections.get(chat_id, set()))
     dead: list[WebSocket] = []
     for c in conns:
         try:
@@ -673,9 +647,6 @@ async def broadcast(chat_id: str, event: dict) -> None:
         remove_conn(chat_id, d)
 
 
-# =========================
-# WebSocket (text messages)
-# =========================
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     token = (ws.query_params.get("token") or "").strip()
@@ -701,45 +672,8 @@ async def ws_endpoint(ws: WebSocket):
 
     try:
         while True:
-            raw = await ws.receive_text()
-            data = json.loads(raw)
-
-            if data.get("type") != "message":
-                continue
-
-            text = (data.get("text") or "").strip()
-            if not text or len(text) > 2000:
-                continue
-
-            ts = int(time.time())
-
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
-                        VALUES(%s,%s,%s,%s,NULL,NULL,NULL,NULL)
-                        RETURNING id
-                        """,
-                        (chat_id, username, text, ts),
-                    )
-                    msg_id = cur.fetchone()["id"]
-                conn.commit()
-
-            event = {
-                "type": "message",
-                "id": msg_id,
-                "chat_id": chat_id,
-                "sender": username,
-                "text": text,
-                "created_at": ts,
-                "media_kind": None,
-                "media_url": None,
-                "media_mime": None,
-                "media_name": None,
-            }
-            await broadcast(chat_id, event)
-
+            # держим соединение (клиент может ничего не слать)
+            await ws.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
@@ -747,9 +681,11 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # =========================
-# Frontend serve (MONOREPO)  — MUST BE LAST
+# Frontend serve (MONOREPO) — должно быть в самом конце
 # =========================
-if not os.path.isdir(FRONTEND_DIR):
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+else:
     @app.get("/")
     def _no_frontend():
         return {
@@ -757,6 +693,3 @@ if not os.path.isdir(FRONTEND_DIR):
             "expected_path": FRONTEND_DIR,
             "hint": "Repo should contain: frontend/index.html рядом с backend/",
         }
-else:
-    # Mount at "/" AFTER all API routes, otherwise POST /api/* may become 405 (StaticFiles).
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
