@@ -8,9 +8,9 @@ import hashlib
 import hmac
 import secrets
 import re
-from typing import Dict, Set, Optional, List
+from typing import Dict, Set, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -199,9 +199,45 @@ class DMCreateIn(BaseModel):
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 
 
+# =========================
+# Auth helpers (Bearer header preferred, token query supported for compatibility)
+# =========================
+def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2:
+        return None
+    scheme, value = parts[0].strip(), parts[1].strip()
+    if scheme.lower() != "bearer" or not value:
+        return None
+    return value
+
+
+def get_token(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+) -> str:
+    # Prefer Authorization: Bearer <token>
+    token = _extract_bearer(authorization)
+    if token:
+        return token
+
+    # Backward compatible: ?token=...
+    token_q = (request.query_params.get("token") or "").strip()
+    if token_q:
+        return token_q
+
+    raise HTTPException(status_code=401, detail="Missing token")
+
+
 def require_user(token: str) -> str:
     payload = jwt_verify(token)
     return payload["sub"]
+
+
+def get_current_username(token: str = Depends(get_token)) -> str:
+    return require_user(token)
 
 
 def make_id(prefix: str = "") -> str:
@@ -284,12 +320,16 @@ def login(data: AuthIn):
     return {"token": token, "username": username}
 
 
+@app.get("/api/me")
+def me(username: str = Depends(get_current_username)):
+    return {"username": username}
+
+
 # =========================
 # Chats
 # =========================
 @app.get("/api/chats")
-def list_chats(token: str):
-    me = require_user(token)
+def list_chats(username: str = Depends(get_current_username)):
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -300,7 +340,7 @@ def list_chats(token: str):
         WHERE m.username = ?
         ORDER BY c.created_at DESC
         """,
-        (me,),
+        (username,),
     )
     rows = cur.fetchall()
     conn.close()
@@ -308,8 +348,7 @@ def list_chats(token: str):
 
 
 @app.post("/api/chats")
-def create_chat(token: str, data: ChatCreateIn):
-    me = require_user(token)
+def create_chat(data: ChatCreateIn, username: str = Depends(get_current_username)):
     title = data.title.strip()
     if not title or len(title) > 40:
         raise HTTPException(status_code=400, detail="Название чата: 1-40 символов.")
@@ -321,11 +360,11 @@ def create_chat(token: str, data: ChatCreateIn):
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(?,?,?,?,?)",
-        (chat_id, "group", title, me, now),
+        (chat_id, "group", title, username, now),
     )
     cur.execute(
         "INSERT INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
-        (chat_id, me, now),
+        (chat_id, username, now),
     )
     conn.commit()
     conn.close()
@@ -333,12 +372,11 @@ def create_chat(token: str, data: ChatCreateIn):
 
 
 @app.post("/api/chats/dm")
-def create_dm(token: str, data: DMCreateIn):
-    me = require_user(token)
+def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
     other = data.username.strip()
     if not USERNAME_RE.match(other):
         raise HTTPException(status_code=400, detail="Некорректный username.")
-    if other == me:
+    if other == username:
         raise HTTPException(status_code=400, detail="Нельзя создать DM с самим собой.")
 
     conn = db()
@@ -351,7 +389,7 @@ def create_dm(token: str, data: DMCreateIn):
         raise HTTPException(status_code=404, detail="Пользователь не найден.")
 
     # Find existing dm by title key "dm:me|other" (sorted)
-    a, b = sorted([me, other])
+    a, b = sorted([username, other])
     dm_key = f"dm:{a}|{b}"
 
     cur.execute("SELECT id, title, created_at FROM chats WHERE type='dm' AND title=?", (dm_key,))
@@ -364,17 +402,18 @@ def create_dm(token: str, data: DMCreateIn):
         created_at = int(time.time())
         cur.execute(
             "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(?,?,?,?,?)",
-            (chat_id, "dm", dm_key, me, created_at),
+            (chat_id, "dm", dm_key, username, created_at),
         )
 
     # ensure membership
+    now = int(time.time())
     cur.execute(
         "INSERT OR IGNORE INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
-        (chat_id, me, int(time.time())),
+        (chat_id, username, now),
     )
     cur.execute(
         "INSERT OR IGNORE INTO chat_members(chat_id, username, joined_at) VALUES(?,?,?)",
-        (chat_id, other, int(time.time())),
+        (chat_id, other, now),
     )
     conn.commit()
     conn.close()
@@ -387,11 +426,9 @@ def create_dm(token: str, data: DMCreateIn):
 # Messages
 # =========================
 @app.get("/api/messages")
-def list_messages(token: str, chat_id: str):
-    me = require_user(token)
-
+def list_messages(chat_id: str, username: str = Depends(get_current_username)):
     conn = db()
-    if not is_member(conn, chat_id, me):
+    if not is_member(conn, chat_id, username):
         conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
 
