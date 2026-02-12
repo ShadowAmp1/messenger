@@ -12,8 +12,8 @@ from typing import Dict, Set, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
@@ -23,13 +23,13 @@ from pydantic import BaseModel
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.join(BASE_DIR, "app.db")
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")  # на Render лучше задать ENV
+JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 JWT_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
-CHAT_ID = "general"  # MVP: один чат
+CHAT_ID = "general"  # MVP one chat
 
 
 # =========================
-# DB helpers
+# DB
 # =========================
 def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -138,7 +138,6 @@ def jwt_verify(token: str) -> dict:
 init_db()
 app = FastAPI()
 
-# CORS: для MVP ок. Потом ограничим доменом Render.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -147,32 +146,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- Frontend serving (ВАЖНО!)
-# НЕ mount("/") — иначе может перехватывать /api/... и давать 405.
+# ---- Frontend serving
+# IMPORTANT: we DO NOT mount "/" to avoid intercepting "/api/*"
 FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
 
 
 @app.get("/")
-def serve_index():
+def index():
     return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
-# если появятся отдельные файлы (css/js/img) — они будут доступны по /static/...
+# If later you add real static files, access them via /static/...
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 # =========================
-# Schemas
+# Models
 # =========================
 class AuthIn(BaseModel):
     username: str
     password: str
 
 
-# =========================
-# Auth endpoints
-# =========================
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+
+
+# =========================
+# API
+# =========================
+@app.get("/api/health")
+def health():
+    return {"ok": True, "ts": int(time.time())}
 
 
 @app.post("/api/register")
@@ -220,13 +224,10 @@ def login(data: AuthIn):
     return {"token": token, "username": row["username"]}
 
 
-# =========================
-# Messages endpoints
-# =========================
 @app.get("/api/messages")
 def list_messages(token: str):
     payload = jwt_verify(token)
-    _username = payload["sub"]
+    _ = payload["sub"]
 
     conn = db()
     cur = conn.cursor()
@@ -238,12 +239,12 @@ def list_messages(token: str):
     rows = cur.fetchall()
     conn.close()
 
-    msgs = [dict(r) for r in rows][::-1]  # oldest -> newest
+    msgs = [dict(r) for r in rows][::-1]
     return {"chat_id": CHAT_ID, "messages": msgs}
 
 
 # =========================
-# WebSocket realtime chat
+# WebSocket
 # =========================
 connections: Dict[str, Set[WebSocket]] = {CHAT_ID: set()}
 
@@ -263,10 +264,8 @@ async def ws_endpoint(ws: WebSocket):
 
     username = payload["sub"]
     await ws.accept()
-
     connections[CHAT_ID].add(ws)
 
-    # presence online
     await broadcast(CHAT_ID, {"type": "presence", "user": username, "status": "online", "ts": int(time.time())})
 
     try:
@@ -284,8 +283,6 @@ async def ws_endpoint(ws: WebSocket):
                 continue
 
             ts = int(time.time())
-
-            # store message
             conn = db()
             cur = conn.cursor()
             cur.execute(
@@ -296,15 +293,17 @@ async def ws_endpoint(ws: WebSocket):
             msg_id = cur.lastrowid
             conn.close()
 
-            event = {
-                "type": "message",
-                "id": msg_id,
-                "chat_id": CHAT_ID,
-                "sender": username,
-                "text": text,
-                "created_at": ts,
-            }
-            await broadcast(CHAT_ID, event)
+            await broadcast(
+                CHAT_ID,
+                {
+                    "type": "message",
+                    "id": msg_id,
+                    "chat_id": CHAT_ID,
+                    "sender": username,
+                    "text": text,
+                    "created_at": ts,
+                },
+            )
 
     except WebSocketDisconnect:
         pass
