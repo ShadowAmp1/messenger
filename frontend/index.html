@@ -18,6 +18,7 @@
 
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
+
     body{
       margin:0;
       font-family: system-ui, Arial;
@@ -28,7 +29,7 @@
 
     /* ===== Shell ===== */
     .wrap{
-      height: 100dvh;
+      height: 100dvh; /* iOS fix */
       padding: 16px;
       display:flex;
       align-items:center;
@@ -324,7 +325,7 @@
     }
     .drawer-backdrop.open{ display:block; }
 
-    /* ===== Create Sheet (единственное окно создания) ===== */
+    /* ===== Create Sheet (одно окно создания) ===== */
     .sheet-overlay{
       position: fixed; inset:0;
       background: rgba(0,0,0,.45);
@@ -332,7 +333,11 @@
       z-index: 400;
       padding: 12px;
     }
-    .sheet-overlay.open{ display:flex; align-items:center; justify-content:center; } /* ПК: по центру */
+    .sheet-overlay.open{
+      display:flex;
+      align-items:center;     /* ПК: центр */
+      justify-content:center;
+    }
     .sheet{
       width: min(520px, 100%);
       background: var(--card);
@@ -375,7 +380,7 @@
       touch-action: manipulation;
     }
 
-    /* ===== Mobile rules ===== */
+    /* ===== Mobile ===== */
     @media (max-width: 900px){
       .wrap{ padding: 0; height: 100dvh; }
       .card{
@@ -407,7 +412,7 @@
       .msgs{ padding: 12px; }
       .msg{ max-width: 92%; }
 
-      /* На телефоне sheet снизу (bottom-sheet) */
+      /* Телефон: sheet снизу (bottom-sheet) */
       .sheet-overlay.open{ align-items:flex-end; justify-content:center; }
       .sheet{ border-radius: 18px 18px 0 0; }
     }
@@ -497,7 +502,7 @@
     </div>
   </div>
 
-  <!-- CREATE SHEET (group/dm) -->
+  <!-- CREATE SHEET (Group/DM) -->
   <div class="sheet-overlay" id="sheetOverlay" aria-hidden="true">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
@@ -522,8 +527,8 @@
   let ws = null;
 
   let chats = [];
-  let activeChatId = localStorage.getItem("activeChatId") || "general";
-  let activeChatTitle = "general";
+  let activeChatId = localStorage.getItem("activeChatId") || "";
+  let activeChatTitle = "";
 
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
@@ -631,6 +636,7 @@
   async function authSubmit(){
     const username = $("authUsername").value.trim();
     const password = $("authPassword").value;
+
     $("authError").style.display="none";
     $("authError").textContent="";
 
@@ -641,6 +647,7 @@
       const data = await api("/api/login", "POST", {username, password});
       token = data.token;
       me = data.username;
+
       localStorage.setItem("token", token);
       localStorage.setItem("username", me);
 
@@ -648,22 +655,20 @@
       closeAuth();
       addSystem(`✅ Logged in as ${me}`);
 
-      await refreshChats();
-      if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
-      selectChat(activeChatId);
+      await refreshChats(true);
     }catch(e){
       authError(e.message);
     }
   }
 
-  /* ===== Create sheet (единственное окно создания) ===== */
+  /* ===== Create sheet ===== */
   const sheet = {
     overlay: $("sheetOverlay"),
     title: $("sheetTitle"),
     input: $("sheetInput"),
     hint: $("sheetHint"),
     ok: $("btnSheetOk"),
-    mode: null // "group" | "dm"
+    mode: null
   };
 
   function openSheet(mode){
@@ -697,7 +702,7 @@
     if (!t) return addSystem("⚠️ Введи название чата.");
     const data = await api("/api/chats", "POST", {title: t});
     addSystem(`✅ Created: ${data.chat.title}`);
-    await refreshChats();
+    await refreshChats(false);
     selectChat(data.chat.id);
   }
 
@@ -706,7 +711,7 @@
     if (!u) return addSystem("⚠️ Введи username.");
     const data = await api("/api/chats/dm", "POST", {username: u});
     addSystem(`✅ ${data.chat.title}`);
-    await refreshChats();
+    await refreshChats(false);
     selectChat(data.chat.id);
   }
 
@@ -715,7 +720,9 @@
     const list = $("chatlist");
     list.innerHTML = "";
 
-    const ordered = [...chats].sort((a,b) => (a.id === "general" ? -1 : 0) + (b.id === "general" ? 1 : 0));
+    // general не подставляем. Показываем только то, что вернул сервер.
+    const ordered = [...chats];
+
     for (const c of ordered){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
@@ -729,15 +736,17 @@
       let title = c.title;
       let typeLabel = c.type;
 
-      if (c.type === "dm" && c.title.startsWith("dm:")){
+      if (c.type === "dm" && c.title && c.title.startsWith("dm:")){
         const parts = c.title.slice(3).split("|");
-        const other = parts[0] === me ? parts[1] : parts[0];
-        title = `DM: ${other}`;
+        if (parts.length === 2){
+          const other = parts[0] === me ? parts[1] : parts[0];
+          title = `DM: ${other}`;
+        }
       }
 
       const t1 = document.createElement("div");
       t1.className = "title";
-      t1.textContent = title;
+      t1.textContent = title || c.id;
 
       const t2 = document.createElement("div");
       t2.className = "sub";
@@ -748,7 +757,7 @@
 
       const badge = document.createElement("span");
       badge.className = "badge";
-      badge.textContent = typeLabel;
+      badge.textContent = typeLabel || "chat";
 
       item.appendChild(left);
       item.appendChild(badge);
@@ -762,12 +771,31 @@
     }
   }
 
-  async function refreshChats(){
+  async function refreshChats(selectIfNeeded){
     if (!token){ openAuth("login"); return; }
+
     const data = await api("/api/chats");
     chats = data.chats || [];
-    if (!chats.find(c => c.id === "general")) chats.push({id:"general", type:"group", title:"general", created_at:0});
     renderChatList();
+
+    if (!chats.length){
+      activeChatId = "";
+      activeChatTitle = "";
+      localStorage.removeItem("activeChatId");
+      $("msgs").innerHTML = "";
+      addSystem("ℹ️ У тебя пока нет чатов. Создай групповой чат или DM.");
+      setStatus("");
+      if (ws) { ws.close(); ws = null; }
+      return;
+    }
+
+    if (selectIfNeeded){
+      if (!activeChatId || !chats.find(c => c.id === activeChatId)){
+        activeChatId = chats[0].id;
+        localStorage.setItem("activeChatId", activeChatId);
+      }
+      selectChat(activeChatId);
+    }
   }
 
   function selectChat(chatId){
@@ -776,38 +804,58 @@
 
     const found = chats.find(c => c.id === chatId);
     if (found){
-      activeChatTitle = found.title;
-      if (found.type === "dm" && found.title.startsWith("dm:")){
+      activeChatTitle = found.title || found.id;
+      if (found.type === "dm" && found.title && found.title.startsWith("dm:")){
         const parts = found.title.slice(3).split("|");
-        const other = parts[0] === me ? parts[1] : parts[0];
-        activeChatTitle = `DM: ${other}`;
+        if (parts.length === 2){
+          const other = parts[0] === me ? parts[1] : parts[0];
+          activeChatTitle = `DM: ${other}`;
+        }
       }
-    } else activeChatTitle = chatId;
+    } else {
+      activeChatTitle = chatId;
+    }
 
     $("msgs").innerHTML = "";
     addSystem(`📌 Chat: ${activeChatTitle}`);
 
     renderChatList();
     connectWS();
-    loadHistory().catch(err => addSystem("❌ " + err.message));
+    loadHistory();
   }
 
   /* ===== Messages ===== */
   async function loadHistory(){
     if (!token) return openAuth("login");
+
     const box = $("msgs");
     box.innerHTML = "";
     addSystem(`📥 Loading: ${activeChatTitle}...`);
-    const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
-    box.innerHTML = "";
-    for (const m of data.messages) addMsg(m);
-    scrollToBottom(box);
-    updateToBottom();
+
+    try{
+      const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
+      box.innerHTML = "";
+      for (const m of (data.messages || [])) addMsg(m);
+      scrollToBottom(box);
+      updateToBottom();
+    } catch (e) {
+      // если доступ потерян (403) — переключаемся на первый доступный чат
+      if (String(e.message).includes("403")) {
+        addSystem("⚠️ Нет доступа к этому чату. Переключаю на доступный...");
+        await refreshChats(false);
+        if (chats.length) selectChat(chats[0].id);
+        return;
+      }
+      addSystem("❌ " + e.message);
+    }
   }
 
   function connectWS(){
     if (!token) return openAuth("login");
+    if (!activeChatId) return;
+
     if (ws) ws.close();
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`);
 
@@ -816,7 +864,8 @@
     ws.onerror = () => setStatus("⚠️ WS error");
 
     ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
+      let data;
+      try { data = JSON.parse(ev.data); } catch { return; }
       if (data.type === "message" && data.chat_id === activeChatId) addMsg(data);
     };
   }
@@ -840,11 +889,12 @@
     ws = null;
 
     chats = [];
-    activeChatId = "general";
-    activeChatTitle = "general";
+    activeChatId = "";
+    activeChatTitle = "";
 
     $("chatlist").innerHTML = "";
     $("msgs").innerHTML = "";
+
     setStatus("");
     setWhoami();
     addSystem("👋 Logged out");
@@ -854,7 +904,7 @@
     openAuth("login");
   }
 
-  /* ===== Swipe to open/close sidebar (mobile) ===== */
+  /* ===== Swipe (mobile) ===== */
   function setupSwipe(){
     const root = $("appRoot");
     let startX = 0, startY = 0, tracking = false, startedOnEdge = false;
@@ -867,7 +917,7 @@
       startY = t.clientY;
       tracking = true;
       startedOnEdge = startX <= 24; // левый край
-    }, { passive: true });
+    }, { passive:true });
 
     root.addEventListener("touchmove", (e) => {
       if (!tracking || !isMobile()) return;
@@ -876,24 +926,23 @@
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
 
-      // если движение больше вертикальное — не считаем свайпом
-      if (Math.abs(dy) > Math.abs(dx)) return;
+      if (Math.abs(dy) > Math.abs(dx)) return; // вертикаль — игнор
 
-      // открытие: только если начали с левого края
+      // открыть — только если начали с края
       if (startedOnEdge && dx > 40) {
         openSidebar();
         tracking = false;
       }
 
-      // закрытие: если меню открыто и свайп влево
+      // закрыть — если открыто и свайп влево
       if (sidebar.classList.contains("open") && dx < -40) {
         closeSidebar();
         tracking = false;
       }
-    }, { passive: true });
+    }, { passive:true });
 
-    root.addEventListener("touchend", ()=> { tracking = false; }, { passive: true });
-    root.addEventListener("touchcancel", ()=> { tracking = false; }, { passive: true });
+    root.addEventListener("touchend", ()=> { tracking = false; }, { passive:true });
+    root.addEventListener("touchcancel", ()=> { tracking = false; }, { passive:true });
   }
 
   /* ===== Wiring ===== */
@@ -911,7 +960,7 @@
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
-  // Create (sheet only)
+  // Create: sheet only (ПК и телефон одинаково)
   $("btnOpenCreateGroup").onclick = () => {
     if (!token) return openAuth("login");
     openSheet("group");
@@ -936,7 +985,7 @@
   };
   sheet.input.addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
-  $("btnRefreshChats").onclick = () => refreshChats().catch(e=> addSystem("❌ " + e.message));
+  $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
 
   $("btnSend").onclick = () => send();
@@ -963,11 +1012,7 @@
         me = data.username;
         localStorage.setItem("username", me);
         setWhoami();
-        return refreshChats();
-      })
-      .then(() => {
-        if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
-        selectChat(activeChatId);
+        return refreshChats(true);
       })
       .catch(() => {
         token = "";
