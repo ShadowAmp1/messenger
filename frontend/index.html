@@ -14,6 +14,7 @@
       --btn:#1b2742;
       --btn2:#12284a;
       --shadow: 0 18px 50px rgba(0,0,0,.5);
+      --danger:#ff5b5b;
     }
 
     *{ box-sizing:border-box; }
@@ -24,12 +25,11 @@
       font-family: system-ui, Arial;
       background: var(--bg);
       color:#e6eefc;
-      overflow: hidden; /* страница не скроллится */
+      overflow: hidden;
     }
 
-    /* ===== Shell ===== */
     .wrap{
-      height: 100dvh; /* iOS fix */
+      height: 100dvh;
       padding: 16px;
       display:flex;
       align-items:center;
@@ -52,7 +52,6 @@
       min-height: 0;
     }
 
-    /* ===== Top bar (safe-area) ===== */
     .top{
       flex: 0 0 auto;
       display:flex;
@@ -94,7 +93,6 @@
     .btn:hover{ filter:brightness(1.08); }
     .btn:active{ transform: translateY(1px); }
 
-    /* ===== Main grid ===== */
     .grid{
       flex: 1 1 auto;
       min-height: 0;
@@ -103,7 +101,6 @@
       height: auto;
     }
 
-    /* ===== Sidebar ===== */
     .sidebar{
       min-height: 0;
       border-right: 1px solid var(--border);
@@ -163,7 +160,6 @@
     .iconbtn:hover{ filter:brightness(1.12); }
     .iconbtn:active{ transform: translateY(1px); }
 
-    /* ===== Chat ===== */
     .chat{
       min-height: 0;
       display:flex;
@@ -204,6 +200,7 @@
     }
     .media img{ width:100%; display:block; }
     .media video{ width:100%; display:block; }
+    .media audio{ width:100%; display:block; padding: 10px; }
 
     .composer{
       flex: 0 0 auto;
@@ -225,6 +222,7 @@
       color:#e6eefc;
       outline:none;
       font-size: 16px;
+      min-width: 0;
     }
     .composer button{
       min-width: 86px;
@@ -237,12 +235,39 @@
       touch-action: manipulation;
     }
 
-    #btnAttach{
+    #btnAttach, #btnRec{
       min-width: 46px;
       padding: 12px 14px;
     }
 
-    /* Arrow down */
+    /* Recording state */
+    #btnRec.rec{
+      border-color: rgba(255,91,91,.65);
+      box-shadow: 0 0 0 2px rgba(255,91,91,.12) inset;
+      position: relative;
+    }
+    #btnRec.rec::after{
+      content:"";
+      width:10px;height:10px;
+      border-radius:999px;
+      background: var(--danger);
+      position:absolute;
+      top: 8px;
+      right: 8px;
+      box-shadow: 0 0 12px rgba(255,91,91,.55);
+    }
+    .rec-timer{
+      font-size: 12px;
+      opacity: .9;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border:1px solid var(--border);
+      background:#0b1220;
+      white-space: nowrap;
+      display:none;
+    }
+    .rec-timer.show{ display:inline-flex; }
+
     .to-bottom{
       position:absolute;
       right: 12px;
@@ -263,7 +288,6 @@
     }
     .to-bottom.show{ display:grid; }
 
-    /* ===== Auth modal ===== */
     .modal-overlay{
       position:fixed; inset:0;
       background: rgba(0,0,0,.55);
@@ -331,7 +355,6 @@
       cursor:pointer;
     }
 
-    /* ===== Drawer (mobile chats menu) ===== */
     .mobile-only{ display:none; }
 
     .drawer-backdrop{
@@ -342,7 +365,6 @@
     }
     .drawer-backdrop.open{ display:block; }
 
-    /* ===== Create Sheet (одно окно создания) ===== */
     .sheet-overlay{
       position: fixed; inset:0;
       background: rgba(0,0,0,.45);
@@ -352,7 +374,7 @@
     }
     .sheet-overlay.open{
       display:flex;
-      align-items:center;     /* ПК: центр */
+      align-items:center;
       justify-content:center;
     }
     .sheet{
@@ -397,7 +419,6 @@
       touch-action: manipulation;
     }
 
-    /* ===== Mobile ===== */
     @media (max-width: 900px){
       .wrap{ padding: 0; height: 100dvh; }
       .card{
@@ -429,7 +450,6 @@
       .msgs{ padding: 12px; }
       .msg{ max-width: 92%; }
 
-      /* Телефон: sheet снизу (bottom-sheet) */
       .sheet-overlay.open{ align-items:flex-end; justify-content:center; }
       .sheet{ border-radius: 18px 18px 0 0; }
     }
@@ -455,7 +475,6 @@
       </div>
 
       <div class="grid">
-        <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
           <div class="row" style="justify-content: space-between;">
             <div><b>Chats</b></div>
@@ -477,18 +496,21 @@
           <div class="chatlist" id="chatlist"></div>
 
           <div class="small" style="margin-top:auto;">
-            Советы: ➕ групповой чат, 💬 DM, ⟳ обновить. 📎 — отправить фото/видео.
+            Советы: ➕ групповой чат, 💬 DM, ⟳ обновить. 📎 — фото/видео/аудио. 🎙️ — голосовое.
           </div>
         </div>
 
-        <!-- Chat -->
         <div class="chat" id="chatArea">
           <div class="msgs" id="msgs"></div>
           <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
 
           <div class="composer">
-            <button id="btnAttach" type="button" title="Фото/Видео">📎</button>
-            <input id="file" type="file" accept="image/*,video/*" style="display:none" />
+            <button id="btnAttach" type="button" title="Фото/Видео/Аудио">📎</button>
+            <input id="file" type="file" accept="image/*,video/*,audio/*" style="display:none" />
+
+            <button id="btnRec" type="button" title="Голосовое">🎙️</button>
+            <div class="rec-timer" id="recTimer">● 00:00</div>
+
             <input id="text" placeholder="Напиши сообщение..." />
             <button id="btnSend" type="button">Send</button>
           </div>
@@ -521,7 +543,7 @@
     </div>
   </div>
 
-  <!-- CREATE SHEET (Group/DM) -->
+  <!-- CREATE SHEET -->
   <div class="sheet-overlay" id="sheetOverlay" aria-hidden="true">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
@@ -589,9 +611,8 @@
     updateToBottom();
   }
 
-  // поддерживает и текст, и медиа
   function addMsg(m){
-    const {sender, text, created_at, media_kind, media_url, media_mime, media_name} = m;
+    const {sender, text, created_at, media_kind, media_url, media_name} = m;
 
     const box = $("msgs");
     const stick = isNearBottom(box);
@@ -625,6 +646,17 @@
       video.controls = true;
       video.preload = "metadata";
       wrap.appendChild(video);
+      div.appendChild(wrap);
+    }
+
+    if (media_url && media_kind === "audio"){
+      const wrap = document.createElement("div");
+      wrap.className = "media";
+      const audio = document.createElement("audio");
+      audio.src = media_url;
+      audio.controls = true;
+      audio.preload = "metadata";
+      wrap.appendChild(audio);
       div.appendChild(wrap);
     }
 
@@ -766,14 +798,13 @@
     selectChat(data.chat.id);
   }
 
-  /* ===== Media upload ===== */
+  /* ===== Media upload (image/video/audio/voice) ===== */
   async function uploadMedia(file){
     if (!token) return openAuth("login");
     if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
 
     const caption = $("text").value.trim();
 
-    // лимит фронта (совпадает с бекендом, если ты поставил 25MB)
     const maxBytes = 25 * 1024 * 1024;
     if (file.size > maxBytes){
       addSystem("⚠️ Файл слишком большой (лимит 25MB).");
@@ -806,13 +837,153 @@
     $("text").value = "";
     $("file").value = "";
 
-    // если WS неактивен — покажем сообщение сразу
     if (!ws || ws.readyState !== 1){
       if (data.message) addMsg(data.message);
     }
 
     setStatus(`🟢 WS • ${activeChatTitle}`);
   }
+
+  /* ===== Voice recording ===== */
+  const btnRec = $("btnRec");
+  const recTimer = $("recTimer");
+
+  let rec = {
+    active: false,
+    mediaRecorder: null,
+    chunks: [],
+    t0: 0,
+    timerId: null,
+    stream: null,
+    mime: "",
+    ext: "webm",
+  };
+
+  function fmtTime(sec){
+    const m = String(Math.floor(sec/60)).padStart(2,"0");
+    const s = String(Math.floor(sec%60)).padStart(2,"0");
+    return `${m}:${s}`;
+  }
+
+  function pickMime(){
+    // приоритет: opus/webm -> ogg -> mp4 (iOS часто)
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+      "audio/mp4",
+      "audio/aac",
+      "audio/wav",
+    ];
+    if (!window.MediaRecorder) return "";
+    for (const c of candidates){
+      try{
+        if (MediaRecorder.isTypeSupported(c)) return c;
+      }catch(_){}
+    }
+    return "";
+  }
+
+  function mimeToExt(m){
+    m = (m||"").toLowerCase();
+    if (m.includes("mp4")) return "m4a";
+    if (m.includes("aac")) return "aac";
+    if (m.includes("ogg")) return "ogg";
+    if (m.includes("wav")) return "wav";
+    return "webm";
+  }
+
+  async function startRecording(){
+    if (!token) return openAuth("login");
+    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      addSystem("⚠️ Запись голоса не поддерживается в этом браузере.");
+      return;
+    }
+    if (!window.MediaRecorder){
+      addSystem("⚠️ MediaRecorder не поддерживается в этом браузере.");
+      return;
+    }
+
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = pickMime();
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
+      rec.active = true;
+      rec.mediaRecorder = mr;
+      rec.chunks = [];
+      rec.t0 = Date.now();
+      rec.stream = stream;
+      rec.mime = mime || mr.mimeType || "audio/webm";
+      rec.ext = mimeToExt(rec.mime);
+
+      btnRec.classList.add("rec");
+      btnRec.textContent = "⏹️";
+      recTimer.classList.add("show");
+      recTimer.textContent = `● 00:00`;
+
+      rec.timerId = setInterval(()=>{
+        const sec = (Date.now() - rec.t0) / 1000;
+        recTimer.textContent = `● ${fmtTime(sec)}`;
+      }, 250);
+
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) rec.chunks.push(e.data);
+      };
+
+      mr.onstop = async () => {
+        try{
+          const blob = new Blob(rec.chunks, { type: rec.mime || "audio/webm" });
+          const fname = `voice_${Date.now()}.${rec.ext}`;
+          const file = new File([blob], fname, { type: rec.mime || "audio/webm" });
+          await uploadMedia(file);
+        }catch(e){
+          addSystem("❌ " + (e.message || e));
+        }
+      };
+
+      mr.start();
+      setStatus(`🎙️ Recording... ${activeChatTitle}`);
+    }catch(e){
+      addSystem("❌ Не удалось включить микрофон: " + (e.message || e));
+    }
+  }
+
+  function stopRecording(){
+    if (!rec.active) return;
+
+    rec.active = false;
+    setStatus(`🟢 WS • ${activeChatTitle}`);
+
+    btnRec.classList.remove("rec");
+    btnRec.textContent = "🎙️";
+    recTimer.classList.remove("show");
+
+    if (rec.timerId){ clearInterval(rec.timerId); rec.timerId = null; }
+
+    try{
+      if (rec.mediaRecorder && rec.mediaRecorder.state !== "inactive"){
+        rec.mediaRecorder.stop();
+      }
+    }catch(_){}
+
+    try{
+      if (rec.stream){
+        for (const t of rec.stream.getTracks()) t.stop();
+      }
+    }catch(_){}
+
+    rec.mediaRecorder = null;
+    rec.stream = null;
+  }
+
+  btnRec.onclick = () => {
+    if (rec.active) stopRecording();
+    else startRecording();
+  };
 
   /* ===== Chats ===== */
   function renderChatList(){
@@ -895,6 +1066,8 @@
   }
 
   function selectChat(chatId){
+    if (rec.active) stopRecording();
+
     activeChatId = chatId;
     localStorage.setItem("activeChatId", activeChatId);
 
@@ -970,12 +1143,15 @@
     const text = $("text").value.trim();
     if (!text) return;
     if (!token) return openAuth("login");
+    if (rec.active) return addSystem("⚠️ Сначала останови запись 🎙️");
     if (!ws || ws.readyState !== 1) return addSystem("⚠️ Нет соединения WS");
     ws.send(JSON.stringify({type:"message", text}));
     $("text").value = "";
   }
 
   function logout(){
+    if (rec.active) stopRecording();
+
     token = ""; me = "";
     localStorage.removeItem("token");
     localStorage.removeItem("username");
@@ -1012,7 +1188,7 @@
       startX = t.clientX;
       startY = t.clientY;
       tracking = true;
-      startedOnEdge = startX <= 24; // левый край
+      startedOnEdge = startX <= 24;
     }, { passive:true });
 
     root.addEventListener("touchmove", (e) => {
@@ -1054,7 +1230,6 @@
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
-  // Create: sheet only
   $("btnOpenCreateGroup").onclick = () => {
     if (!token) return openAuth("login");
     openSheet("group");
@@ -1082,11 +1257,9 @@
   $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
 
-  // Send text
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e)=>{ if (e.key === "Enter") send(); });
 
-  // Attach media
   $("btnAttach").onclick = () => $("file").click();
   $("file").addEventListener("change", async () => {
     const f = $("file").files && $("file").files[0];
@@ -1098,12 +1271,12 @@
     }
   });
 
-  // Arrow down
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
 
   document.addEventListener("keydown", (e)=>{
     if (e.key === "Escape"){
+      if (rec.active) stopRecording();
       closeSidebar();
       closeSheet();
     }
