@@ -33,10 +33,18 @@ from pydantic import BaseModel
 
 
 # =========================
+# Paths (MONOREPO)
+# backend/main.py
+# frontend/index.html
+# =========================
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
+
+
+# =========================
 # Config
 # =========================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 
@@ -44,7 +52,7 @@ DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env is required")
 
-# normalize for psycopg
+# Normalize for psycopg
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
@@ -81,7 +89,7 @@ cloudinary.config(
 # DB helpers
 # =========================
 def db():
-    # simple: connection per use
+    # simple + safe: new connection per action
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
@@ -98,19 +106,17 @@ def init_db() -> None:
                 );
                 """
             )
-
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chats (
                     id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
+                    type TEXT NOT NULL,         -- 'group' | 'dm'
+                    title TEXT NOT NULL,        -- group: title; dm: dm:key
                     created_by TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 );
                 """
             )
-
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_members (
@@ -121,7 +127,6 @@ def init_db() -> None:
                 );
                 """
             )
-
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -137,7 +142,6 @@ def init_db() -> None:
                 );
                 """
             )
-
         conn.commit()
 
 
@@ -150,12 +154,11 @@ def is_member(conn, chat_id: str, username: str) -> bool:
         return cur.fetchone() is not None
 
 
-def ensure_default_chat_for(username: str) -> None:
+def ensure_general_for(username: str) -> None:
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM chats WHERE id='general'")
-            row = cur.fetchone()
-            if not row:
+            if cur.fetchone() is None:
                 cur.execute(
                     "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
                     ("general", "group", "general", "system", int(time.time())),
@@ -169,22 +172,16 @@ def ensure_default_chat_for(username: str) -> None:
                 """,
                 ("general", username, int(time.time())),
             )
-
         conn.commit()
 
 
 # =========================
-# Password hashing
+# Password hashing (PBKDF2)
 # =========================
 def hash_password(password: str, salt: Optional[str] = None) -> str:
     if salt is None:
         salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        200_000,
-    )
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
     return f"pbkdf2_sha256$200000${salt}${dk.hex()}"
 
 
@@ -193,8 +190,7 @@ def verify_password(password: str, stored: str) -> bool:
         _, _, salt, _ = stored.split("$", 3)
     except ValueError:
         return False
-    test = hash_password(password, salt)
-    return hmac.compare_digest(test, stored)
+    return hmac.compare_digest(hash_password(password, salt), stored)
 
 
 # =========================
@@ -213,10 +209,10 @@ def b64urldecode(data: str) -> bytes:
 
 def jwt_sign(payload: dict) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
-    header_b64 = b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    payload_b64 = b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    header_b64 = b64url(json.dumps(header, separators=(",", ":")).encode())
+    payload_b64 = b64url(json.dumps(payload, separators=(",", ":")).encode())
     msg = f"{header_b64}.{payload_b64}".encode("ascii")
-    sig = hmac.new(JWT_SECRET.encode("utf-8"), msg, hashlib.sha256).digest()
+    sig = hmac.new(JWT_SECRET.encode(), msg, hashlib.sha256).digest()
     return f"{header_b64}.{payload_b64}.{b64url(sig)}"
 
 
@@ -227,7 +223,7 @@ def jwt_verify(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     msg = f"{header_b64}.{payload_b64}".encode("ascii")
-    expected = hmac.new(JWT_SECRET.encode("utf-8"), msg, hashlib.sha256).digest()
+    expected = hmac.new(JWT_SECRET.encode(), msg, hashlib.sha256).digest()
     if not hmac.compare_digest(b64url(expected), sig_b64):
         raise HTTPException(status_code=401, detail="Bad signature")
 
@@ -260,8 +256,7 @@ def get_token(request: Request, authorization: Optional[str] = Header(default=No
 
 
 def get_current_username(token: str = Depends(get_token)) -> str:
-    payload = jwt_verify(token)
-    return payload["sub"]
+    return jwt_verify(token)["sub"]
 
 
 # =========================
@@ -273,13 +268,9 @@ def make_id(prefix: str = "") -> str:
 
 def media_kind_from_mime(mime: str) -> str:
     mime = (mime or "").lower().strip()
-    if mime in ALLOWED_IMAGE_MIME:
+    if mime in ALLOWED_IMAGE_MIME or mime.startswith("image/"):
         return "image"
-    if mime in ALLOWED_VIDEO_MIME:
-        return "video"
-    if mime.startswith("image/"):
-        return "image"
-    if mime.startswith("video/"):
+    if mime in ALLOWED_VIDEO_MIME or mime.startswith("video/"):
         return "video"
     return ""
 
@@ -297,7 +288,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# init db on startup
+
 @app.on_event("startup")
 def _startup():
     init_db()
@@ -320,7 +311,7 @@ class DMCreateIn(BaseModel):
 
 
 # =========================
-# Auth
+# Auth API
 # =========================
 @app.post("/api/register")
 def register(data: AuthIn):
@@ -334,7 +325,6 @@ def register(data: AuthIn):
         raise HTTPException(status_code=400, detail="Password: минимум 6 символов.")
 
     now = int(time.time())
-
     try:
         with db() as conn:
             with conn.cursor() as cur:
@@ -346,7 +336,7 @@ def register(data: AuthIn):
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=400, detail="Такой username уже занят.")
 
-    ensure_default_chat_for(username)
+    ensure_general_for(username)
     return {"ok": True}
 
 
@@ -356,13 +346,13 @@ def login(data: AuthIn):
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT username, pass_hash FROM users WHERE username=%s", (username,))
+            cur.execute("SELECT pass_hash FROM users WHERE username=%s", (username,))
             row = cur.fetchone()
 
     if not row or not verify_password(data.password, row["pass_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    ensure_default_chat_for(username)
+    ensure_general_for(username)
 
     now = int(time.time())
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
@@ -375,7 +365,7 @@ def me(username: str = Depends(get_current_username)):
 
 
 # =========================
-# Chats
+# Chats API
 # =========================
 @app.get("/api/chats")
 def list_chats(username: str = Depends(get_current_username)):
@@ -386,17 +376,20 @@ def list_chats(username: str = Depends(get_current_username)):
                 SELECT c.id, c.type, c.title, c.created_at
                 FROM chats c
                 JOIN chat_members m ON m.chat_id = c.id
-                WHERE m.username = %s
+                WHERE m.username=%s
                 ORDER BY c.created_at DESC
                 """,
                 (username,),
             )
             rows = cur.fetchall()
+
+    # Для DM можно красиво переименовать title на клиенте,
+    # а тут оставляем как есть (dm:key)
     return {"chats": rows}
 
 
 @app.post("/api/chats")
-def create_chat(data: ChatCreateIn, username: str = Depends(get_current_username)):
+def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_username)):
     title = data.title.strip()
     if not title or len(title) > 40:
         raise HTTPException(status_code=400, detail="Название чата: 1-40 символов.")
@@ -433,6 +426,7 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
 
     with db() as conn:
         with conn.cursor() as cur:
+            # check user exists
             cur.execute("SELECT 1 FROM users WHERE username=%s LIMIT 1", (other,))
             if cur.fetchone() is None:
                 raise HTTPException(status_code=404, detail="Пользователь не найден.")
@@ -470,13 +464,14 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
                 """,
                 (chat_id, other, now),
             )
+
         conn.commit()
 
     return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at}}
 
 
 # =========================
-# Messages
+# Messages API
 # =========================
 @app.get("/api/messages")
 def list_messages(chat_id: str, username: str = Depends(get_current_username)):
@@ -529,7 +524,7 @@ async def broadcast(chat_id: str, event: dict) -> None:
 
 
 # =========================
-# Upload -> Cloudinary -> message -> broadcast
+# Upload -> Cloudinary
 # =========================
 @app.post("/api/upload")
 async def upload_media(
@@ -542,7 +537,6 @@ async def upload_media(
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
 
-    # Access check
     with db() as conn:
         if not is_member(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
@@ -550,10 +544,10 @@ async def upload_media(
     mime = (file.content_type or "").lower().strip()
     kind = media_kind_from_mime(mime)
     if kind == "image":
-        if mime and mime not in ALLOWED_IMAGE_MIME:
+        if mime and mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
             raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип изображения: {mime}")
     elif kind == "video":
-        if mime and mime not in ALLOWED_VIDEO_MIME:
+        if mime and mime not in ALLOWED_VIDEO_MIME and not mime.startswith("video/"):
             raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип видео: {mime}")
     else:
         raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {mime or 'unknown'}")
@@ -568,16 +562,16 @@ async def upload_media(
     public_id = f"{folder}/{chat_id}/{int(time.time())}_{secrets.token_urlsafe(10)}"
 
     try:
-        upload = cloudinary.uploader.upload(
+        uploaded = cloudinary.uploader.upload(
             data,
             resource_type="auto",
             public_id=public_id,
             overwrite=False,
             unique_filename=True,
         )
-        media_url = upload.get("secure_url") or upload.get("url")
+        media_url = uploaded.get("secure_url") or uploaded.get("url")
         if not media_url:
-            raise RuntimeError("Cloudinary upload returned no url")
+            raise RuntimeError("Cloudinary returned no url")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
 
@@ -588,7 +582,7 @@ async def upload_media(
             cur.execute(
                 """
                 INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (
@@ -635,8 +629,7 @@ async def ws_endpoint(ws: WebSocket):
         return
 
     try:
-        payload = jwt_verify(token)
-        username = payload["sub"]
+        username = jwt_verify(token)["sub"]
     except HTTPException:
         await ws.close(code=4401)
         return
@@ -697,19 +690,10 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # =========================
-# Frontend mount (IMPORTANT)
+# Frontend serve (MONOREPO)
 # =========================
-# ВАЖНО: фронт у тебя в папке frontend/
-# Мы монтируем её на "/" так, чтобы / показывал index.html
-# =========================
-# Frontend mount (monorepo)
-# backend/main.py + frontend/index.html
-# =========================
-
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))        # .../backend
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                      # .../
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")            # .../frontend
-
+# Отдаём сайт с / из ../frontend/index.html
+# и все файлы внутри frontend/ (если есть css/js)
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 else:
@@ -717,11 +701,6 @@ else:
     def _no_frontend():
         return {
             "error": "frontend folder not found",
-            "expected_path": FRONTEND_DIR
+            "expected_path": FRONTEND_DIR,
+            "hint": "Repo should contain: frontend/index.html рядом с backend/"
         }
-
-else:
-    # если папки нет в репо — будет понятно в ответе
-    @app.get("/")
-    def _no_frontend():
-        raise HTTPException(status_code=404, detail="frontend folder not found in repo")
