@@ -34,10 +34,12 @@ from pydantic import BaseModel
 
 # =========================
 # Paths (MONOREPO)
+# backend/main.py
+# frontend/index.html
 # =========================
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
 
 
 # =========================
@@ -167,7 +169,7 @@ def ensure_general_for(username: str) -> None:
             if cur.fetchone() is None:
                 cur.execute(
                     "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    ("general", "group", "general", "system", int(time.time())),
+                    ("general", "group", "General", "system", int(time.time())),
                 )
 
             cur.execute(
@@ -280,6 +282,9 @@ def media_kind_from_mime(mime: str) -> str:
     return ""
 
 
+# =========================
+# App
+# =========================
 app = FastAPI()
 
 app.add_middleware(
@@ -295,18 +300,18 @@ def _startup():
     init_db()
 
 
+# =========================
+# Schemas
+# =========================
 class AuthIn(BaseModel):
     username: str
     password: str
 
-
 class ChatCreateIn(BaseModel):
     title: str
 
-
 class DMCreateIn(BaseModel):
     username: str
-
 
 class MsgIn(BaseModel):
     chat_id: str
@@ -340,7 +345,6 @@ def register(data: AuthIn):
 
     ensure_general_for(username)
 
-    # ✅ СРАЗУ выдаём токен (чтобы фронт не делал лишний /api/login)
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     return {"token": token, "username": username}
 
@@ -672,7 +676,6 @@ async def ws_endpoint(ws: WebSocket):
 
     try:
         while True:
-            # держим соединение (клиент может ничего не слать)
             await ws.receive_text()
     except WebSocketDisconnect:
         pass
@@ -681,7 +684,7 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # =========================
-# Frontend serve (MONOREPO) — должно быть в самом конце
+# Frontend serve — MUST BE LAST
 # =========================
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

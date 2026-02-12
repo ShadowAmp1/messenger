@@ -99,6 +99,7 @@
       grid-template-columns: 320px 1fr;
     }
 
+    /* Sidebar */
     .sidebar{
       border-right: 1px solid var(--border);
       background: rgba(0,0,0,.08);
@@ -184,6 +185,7 @@
       flex: 0 0 auto;
     }
 
+    /* Chat */
     .chat{
       min-height: 0;
       display:flex;
@@ -310,6 +312,7 @@
       background: rgba(0,0,0,.08);
     }
 
+    /* Drawer for mobile */
     .drawer-backdrop{
       display:none;
       position: fixed;
@@ -332,7 +335,7 @@
       .sidebar.open{ transform: translateX(0); }
     }
 
-    /* Modal */
+    /* Auth Modal */
     .modal-overlay{
       position: fixed;
       inset: 0;
@@ -393,8 +396,6 @@
       flex-direction: column;
       gap: 10px;
     }
-
-    /* ✅ Важно: .err по умолчанию скрыт, но мы будем включать display:block через inline style */
     .err{
       display:none;
       border: 1px solid rgba(255,91,91,.35);
@@ -405,7 +406,6 @@
       font-size: 13px;
       white-space: pre-wrap;
     }
-
     .btnrow button{
       width: 100%;
       height: 44px;
@@ -419,7 +419,53 @@
     }
     .btnrow button[disabled]{ opacity:.6; cursor:not-allowed; }
 
-    /* Voice (waveform) */
+    /* ✅ Create sheet */
+    .sheet-overlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      display:none;
+      align-items:flex-end;
+      justify-content:center;
+      padding: 14px;
+      z-index: 55;
+    }
+    .sheet-overlay.open{ display:flex; }
+    .sheet{
+      width: min(560px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .sheet-top{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,.10);
+    }
+    .sheet-body{
+      padding: 12px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sheet-actions button{
+      width: 100%;
+      height: 44px;
+      border-radius: 12px;
+      border:1px solid var(--border);
+      background: var(--btn);
+      color:#e6eefc;
+      cursor:pointer;
+      user-select:none;
+      font-weight: 700;
+    }
+
+    /* ✅ Voice waveform */
     .voice{
       display:flex;
       align-items:center;
@@ -562,6 +608,23 @@
     </div>
   </div>
 
+  <!-- CREATE SHEET -->
+  <div class="sheet-overlay" id="sheetOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b id="sheetTitle">Создать</b>
+        <button class="xbtn" id="btnCloseSheet" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <input id="sheetInput" placeholder="" />
+        <div class="sheet-actions">
+          <button id="btnSheetOk" type="button">OK</button>
+        </div>
+        <div class="small" id="sheetHint" style="opacity:.85;"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
   const $ = (id) => document.getElementById(id);
 
@@ -575,12 +638,14 @@
 
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
+  /* ===== Drawer ===== */
   const sidebar = $("sidebar");
   const backdrop = $("drawerBackdrop");
   function openSidebar(){ sidebar.classList.add("open"); backdrop.classList.add("open"); }
   function closeSidebar(){ sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
   function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
 
+  /* ===== Scroll ===== */
   const toBottomBtn = $("btnToBottom");
   function isNearBottom(el, px=160){
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
@@ -622,7 +687,6 @@
     }catch{ return "—"; }
   }
 
-  // ✅ Чище ошибки: показываем именно detail
   async function api(path, method="GET", body=null){
     const opts = { method, headers: {} };
     if (token) opts.headers["Authorization"] = `Bearer ${token}`;
@@ -638,31 +702,39 @@
     return data;
   }
 
-  /* ===== Voice waveform (оставляем как было) ===== */
+  /* ===== Voice waveform ===== */
   const VOICE = {
     peaksCache: new Map(),
     audioCache: new Map(),
     players: new Set(),
   };
+
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
   function fmtClock(sec){
     sec = Math.max(0, sec || 0);
     const m = String(Math.floor(sec/60)).padStart(1,"0");
     const s = String(Math.floor(sec%60)).padStart(2,"0");
     return `${m}:${s}`;
   }
+
   async function getPeaks(url, samples = 120){
     if (VOICE.peaksCache.has(url)) return VOICE.peaksCache.get(url);
+
     const res = await fetch(url, { mode: "cors" });
     if (!res.ok) throw new Error(`waveform fetch failed: ${res.status}`);
     const buf = await res.arrayBuffer();
+
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) throw new Error("AudioContext not supported");
+
     const ctx = new Ctx();
     const audioBuf = await ctx.decodeAudioData(buf.slice(0));
     try{ await ctx.close(); }catch(_){}
+
     const ch = audioBuf.getChannelData(0);
     const block = Math.floor(ch.length / samples) || 1;
+
     const peaks = new Float32Array(samples);
     for (let i=0;i<samples;i++){
       let start = i * block;
@@ -674,13 +746,16 @@
       }
       peaks[i] = max;
     }
+
     let pmax = 0;
     for (let i=0;i<peaks.length;i++) pmax = Math.max(pmax, peaks[i]);
     const k = pmax > 0 ? (1 / pmax) : 1;
     for (let i=0;i<peaks.length;i++) peaks[i] *= k;
+
     VOICE.peaksCache.set(url, peaks);
     return peaks;
   }
+
   function getOrCreateAudio(url){
     if (VOICE.audioCache.has(url)) return VOICE.audioCache.get(url);
     const a = new Audio(url);
@@ -689,58 +764,76 @@
     VOICE.audioCache.set(url, a);
     return a;
   }
+
   function stopAllExcept(except){
     for (const p of VOICE.players){
       if (p !== except) p.stop();
     }
   }
+
   function drawWave(canvas, peaks, progress01){
     const dpr = window.devicePixelRatio || 1;
     const cssW = canvas.clientWidth || 300;
     const cssH = canvas.clientHeight || 34;
     const W = Math.floor(cssW * dpr);
     const H = Math.floor(cssH * dpr);
+
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
+
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0,0,W,H);
+
     const n = peaks.length;
     const gap = Math.floor(2 * dpr);
     const barW = Math.max(1, Math.floor((W - gap*(n-1)) / n));
     const mid = Math.floor(H/2);
     const maxBar = Math.floor(H * 0.78);
+
     const progX = Math.floor(W * clamp(progress01, 0, 1));
+
     for (let i=0;i<n;i++){
       const x = i * (barW + gap);
       const amp = peaks[i];
       const h = Math.max(2*dpr, Math.floor(amp * maxBar));
       const y = mid - Math.floor(h/2);
+
       const filled = (x + barW) <= progX;
       ctx.fillStyle = filled ? "rgba(230,238,252,.95)" : "rgba(230,238,252,.35)";
       ctx.fillRect(x, y, barW, h);
     }
   }
+
   function createVoicePlayer(url){
     const root = document.createElement("div");
     root.className = "voice";
+
     const btn = document.createElement("div");
     btn.className = "play";
     btn.textContent = "▶";
     btn.title = "Play/Pause";
+
     const waveWrap = document.createElement("div");
     waveWrap.className = "wave";
+
     const canvas = document.createElement("canvas");
     canvas.height = 34;
+
     const timeRow = document.createElement("div");
     timeRow.className = "time";
+
     const left = document.createElement("span");
     left.textContent = "0:00";
+
     const right = document.createElement("span");
     right.textContent = "0:00";
+
     timeRow.appendChild(left);
     timeRow.appendChild(right);
+
     waveWrap.appendChild(canvas);
     waveWrap.appendChild(timeRow);
+
     root.appendChild(btn);
     root.appendChild(waveWrap);
 
@@ -830,8 +923,21 @@
     return player;
   }
 
-  /* ===== AUTH (фикс ошибок + disable кнопки) ===== */
+  /* ===== AUTH ===== */
   let authMode = "login";
+  let authBusy = false;
+
+  function showAuthError(msg){
+    const el = $("authError");
+    el.textContent = msg || "Ошибка";
+    el.style.display = "block";
+  }
+  function hideAuthError(){
+    const el = $("authError");
+    el.textContent = "";
+    el.style.display = "none";
+  }
+
   function setAuthTab(mode){
     authMode = mode;
     $("tabLogin").classList.toggle("active", mode==="login");
@@ -839,17 +945,6 @@
     $("btnAuthSubmit").textContent = (mode==="login") ? "Login" : "Register";
     $("authPassword").setAttribute("autocomplete", mode==="login" ? "current-password" : "new-password");
     hideAuthError();
-  }
-
-  function showAuthError(msg){
-    const el = $("authError");
-    el.textContent = msg || "Ошибка";
-    el.style.display = "block"; // ✅ важно: перебиваем display:none
-  }
-  function hideAuthError(){
-    const el = $("authError");
-    el.textContent = "";
-    el.style.display = "none";
   }
 
   function openAuth(mode="login"){
@@ -865,7 +960,6 @@
     $("authOverlay").setAttribute("aria-hidden","true");
   }
 
-  let authBusy = false;
   async function authSubmit(){
     if (authBusy) return;
     hideAuthError();
@@ -881,13 +975,7 @@
     $("btnAuthSubmit").textContent = (authMode==="login") ? "Logging in…" : "Registering…";
 
     try{
-      let data;
-      if (authMode === "register"){
-        data = await api("/api/register", "POST", {username, password});
-      } else {
-        data = await api("/api/login", "POST", {username, password});
-      }
-
+      const data = await api(authMode==="login" ? "/api/login" : "/api/register", "POST", {username, password});
       token = data.token;
       me = data.username;
 
@@ -899,7 +987,6 @@
       addSystem(`✅ Logged in as ${me}`);
       await refreshChats(true);
     }catch(e){
-      // ✅ теперь ты УВИДИШЬ причину (username занят / пароль короткий / invalid credentials)
       showAuthError(String(e.message || e));
     }finally{
       authBusy = false;
@@ -908,9 +995,66 @@
     }
   }
 
-  /* ===== WS ===== */
+  /* ===== Create Sheet ===== */
+  const sheet = {
+    overlay: $("sheetOverlay"),
+    title: $("sheetTitle"),
+    input: $("sheetInput"),
+    hint: $("sheetHint"),
+    ok: $("btnSheetOk"),
+    mode: null
+  };
+
+  function openSheet(mode){
+    if (!token) return openAuth("login");
+    sheet.mode = mode;
+    sheet.overlay.classList.add("open");
+    sheet.overlay.setAttribute("aria-hidden","false");
+
+    if (mode === "group"){
+      sheet.title.textContent = "Новый групповой чат";
+      sheet.input.placeholder = "Название (например: work)";
+      sheet.hint.textContent = "Создаст чат и переключит тебя в него.";
+      sheet.ok.textContent = "Create";
+    } else {
+      sheet.title.textContent = "Новый DM";
+      sheet.input.placeholder = "Username пользователя";
+      sheet.hint.textContent = "Пользователь должен быть зарегистрирован.";
+      sheet.ok.textContent = "Open DM";
+    }
+
+    sheet.input.value = "";
+    setTimeout(()=> sheet.input.focus(), 50);
+  }
+
+  function closeSheet(){
+    sheet.overlay.classList.remove("open");
+    sheet.overlay.setAttribute("aria-hidden","true");
+    sheet.mode = null;
+  }
+
+  async function createGroupChat(title){
+    const t = (title || "").trim();
+    if (!t) return addSystem("⚠️ Введи название чата.");
+    const data = await api("/api/chats", "POST", { title: t });
+    await refreshChats(false);
+    selectChat(data.chat.id);
+    addSystem(`✅ Created: ${data.chat.title}`);
+  }
+
+  async function createDM(user){
+    const u = (user || "").trim();
+    if (!u) return addSystem("⚠️ Введи username.");
+    const data = await api("/api/chats/dm", "POST", { username: u });
+    await refreshChats(false);
+    selectChat(data.chat.id);
+    addSystem(`✅ ${data.chat.title}`);
+  }
+
+  /* ===== Websocket ===== */
   function connectWS(){
     if (!token || !activeChatId) return;
+
     if (ws) { try{ ws.close(); }catch{} ws = null; }
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -935,6 +1079,7 @@
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
+
     if (!chats.length){
       const div = document.createElement("div");
       div.className = "small";
@@ -942,6 +1087,7 @@
       list.appendChild(div);
       return;
     }
+
     for (const c of chats){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
@@ -1131,7 +1277,21 @@
     }
   }
 
-  /* ===== Media upload / voice record оставил как раньше (если у тебя уже работает) ===== */
+  async function send(){
+    const text = $("text").value.trim();
+    if (!text) return;
+    if (!token) return openAuth("login");
+    if (!activeChatId) return;
+
+    $("text").value = "";
+    try{
+      await api("/api/messages", "POST", { chat_id: activeChatId, text });
+    }catch(e){
+      addSystem("❌ " + e.message);
+    }
+  }
+
+  /* ===== Media upload ===== */
   async function uploadMedia(file){
     if (!token) return openAuth("login");
     if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
@@ -1162,11 +1322,10 @@
 
     $("text").value = "";
     $("file").value = "";
-
     setStatus(`🟢 WS • ${activeChatTitle}`);
   }
 
-  const btnRec = $("btnRec");
+  /* ===== Voice record ===== */
   const recTimer = $("recTimer");
   let rec = { active:false, mediaRecorder:null, chunks:[], t0:0, timerId:null, stream:null };
 
@@ -1233,20 +1392,7 @@
     setStatus("⏫ Upload voice…");
   }
 
-  async function send(){
-    const text = $("text").value.trim();
-    if (!text) return;
-    if (!token) return openAuth("login");
-    if (!activeChatId) return;
-
-    $("text").value = "";
-    try{
-      await api("/api/messages", "POST", { chat_id: activeChatId, text });
-    }catch(e){
-      addSystem("❌ " + e.message);
-    }
-  }
-
+  /* ===== Session ===== */
   function setWhoami(){
     $("whoami").textContent = token ? `@${me}` : "Не авторизован";
     $("btnOpenAuth").style.display = token ? "none" : "";
@@ -1255,11 +1401,13 @@
 
   function logout(){
     stopAllExcept(null);
+
     token = "";
     me = "";
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("activeChatId");
+
     if (ws) { try{ ws.close(); }catch{} ws = null; }
 
     $("msgs").innerHTML = "";
@@ -1273,9 +1421,11 @@
     setNet("offline");
 
     closeSidebar();
+    closeSheet();
     openAuth("login");
   }
 
+  /* ===== Wiring ===== */
   $("btnToggleSidebar").onclick = () => toggleSidebar();
   $("drawerBackdrop").onclick = () => closeSidebar();
   window.addEventListener("resize", ()=> { if (!isMobile()) closeSidebar(); });
@@ -1290,6 +1440,23 @@
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
+  $("btnOpenCreateGroup").onclick = () => openSheet("group");
+  $("btnOpenCreateDM").onclick = () => openSheet("dm");
+
+  $("btnCloseSheet").onclick = () => closeSheet();
+  $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
+  $("btnSheetOk").onclick = async () => {
+    try{
+      const value = sheet.input.value;
+      const mode = sheet.mode;
+      closeSheet();
+      if (mode === "group") await createGroupChat(value);
+      if (mode === "dm") await createDM(value);
+      if (isMobile()) closeSidebar();
+    }catch(e){ addSystem("❌ " + e.message); }
+  };
+  $("sheetInput").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
+
   $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
 
@@ -1300,11 +1467,8 @@
   $("file").addEventListener("change", async () => {
     const f = $("file").files && $("file").files[0];
     if (!f) return;
-    try{
-      await uploadMedia(f);
-    }catch(e){
-      addSystem("❌ " + e.message);
-    }
+    try{ await uploadMedia(f); }
+    catch(e){ addSystem("❌ " + e.message); }
   });
 
   $("btnRec").onclick = async () => {
@@ -1315,8 +1479,17 @@
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
 
+  document.addEventListener("keydown", (e)=>{
+    if (e.key === "Escape"){
+      if (rec.active) stopRecording();
+      closeSidebar();
+      closeSheet();
+    }
+  });
+
   setWhoami();
 
+  /* ===== Bootstrap ===== */
   if (token){
     addSystem("🔁 Checking session…");
     api("/api/me")
