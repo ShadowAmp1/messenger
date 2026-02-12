@@ -10,7 +10,7 @@
       --bg:#0b1220;
       --card:#121a2b;
       --border:#24304a;
-      --muted:rgba(230,238,252,.8);
+      --muted:rgba(230,238,252,.85);
       --btn:#1b2742;
       --btn2:#12284a;
       --shadow: 0 18px 50px rgba(0,0,0,.5);
@@ -18,46 +18,54 @@
 
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
+
     body{
       margin:0;
       font-family: system-ui, Arial;
       background: var(--bg);
       color:#e6eefc;
-      overflow: hidden; /* КЛЮЧ: страница не должна скроллиться */
+      overflow: hidden; /* КЛЮЧ: страница не скроллится */
     }
 
-    /* ====== APP SHELL (Desktop) ====== */
+    /* ===== Layout shell ===== */
     .wrap{
-      height: 100vh;
+      height: 100dvh; /* iOS Safari fix */
       padding: 16px;
       display:flex;
       align-items:center;
       justify-content:center;
     }
 
+    /* fallback для старого iOS */
+    @supports (-webkit-touch-callout: none) {
+      html{ height: -webkit-fill-available; }
+      .wrap{ height: -webkit-fill-available; }
+    }
+
     .card{
       width: min(1100px, 100%);
-      height: calc(100vh - 32px);       /* КЛЮЧ: фикс высоты */
+      height: calc(100dvh - 32px);
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
       overflow: hidden;
       display:flex;
       flex-direction: column;
-      min-height: 0;                    /* КЛЮЧ: для flex */
+      min-height: 0;
     }
 
+    /* ===== Top bar (safe-area aware) ===== */
     .top{
-      height: 58px;
       flex: 0 0 auto;
       display:flex;
       gap:10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
       align-items:center;
       justify-content: space-between;
-      background: rgba(18,26,43,.9);
+      padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px; /* КЛЮЧ: ниже на iPhone */
+      border-bottom: 1px solid var(--border);
+      background: rgba(18,26,43,.92);
       backdrop-filter: blur(6px);
+      z-index: 50;
     }
 
     .top-left{
@@ -80,7 +88,7 @@
       overflow:hidden;
       text-overflow: ellipsis;
     }
-    .small{ font-size:12px; opacity:.85; }
+    .small{ font-size:12px; opacity:.85; color: var(--muted); }
 
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 
@@ -97,23 +105,24 @@
     .btn:hover{ filter:brightness(1.08); }
     .btn:active{ transform: translateY(1px); }
 
-    /* ====== MAIN GRID ====== */
+    /* ===== Main grid ===== */
     .grid{
       flex: 1 1 auto;
-      min-height: 0;                   /* КЛЮЧ */
+      min-height: 0;
       display:grid;
       grid-template-columns: 330px 1fr;
-      height: 100%;
+      height: auto; /* КЛЮЧ: не считаем высоту вручную */
     }
 
+    /* ===== Sidebar ===== */
     .sidebar{
-      min-height: 0;                   /* КЛЮЧ */
+      min-height: 0;
       border-right: 1px solid var(--border);
       padding: 14px;
       display:flex;
       flex-direction: column;
       gap: 12px;
-      overflow: hidden;                /* Скролл у chatlist */
+      overflow: hidden; /* скролл внутри chatlist */
       background: var(--card);
     }
 
@@ -121,8 +130,8 @@
 
     .chatlist{
       flex: 1 1 auto;
-      min-height: 0;                   /* КЛЮЧ */
-      overflow:auto;                   /* КЛЮЧ: скролл только тут */
+      min-height: 0;
+      overflow:auto;
       overscroll-behavior: contain;
       display:flex;
       flex-direction: column;
@@ -166,13 +175,12 @@
     .iconbtn:hover{ filter:brightness(1.12); }
     .iconbtn:active{ transform: translateY(1px); }
 
-    /* Desktop popovers (НЕ используются на телефоне, там bottom-sheet) */
+    /* Desktop popovers only */
     .pop-wrap{ position: relative; }
     .popover{
       position:absolute;
       top: 48px;
-      right: 0;          /* КЛЮЧ: чтобы не улетало вправо */
-      left: auto;
+      right: 0;
       width: 320px;
       max-width: min(320px, 86vw);
       background: var(--card);
@@ -216,20 +224,19 @@
       cursor:pointer;
     }
 
-    /* ====== CHAT AREA ====== */
+    /* ===== Chat ===== */
     .chat{
-      min-height: 0;                   /* КЛЮЧ */
+      min-height: 0;
       display:flex;
       flex-direction: column;
       overflow:hidden;
       position: relative;
-      background: linear-gradient(180deg, rgba(11,18,32,.2), rgba(11,18,32,0));
     }
 
     .msgs{
       flex: 1 1 auto;
-      min-height: 0;                   /* КЛЮЧ */
-      overflow:auto;                   /* КЛЮЧ: скролл только тут */
+      min-height: 0;
+      overflow:auto;
       overscroll-behavior: contain;
       padding: 14px;
       display:flex;
@@ -240,7 +247,7 @@
     .msg{
       max-width: 85%;
       padding: 10px 12px;
-      border-radius: 12px;
+      border-radius: 14px;
       border: 1px solid var(--border);
       background:#0b1220;
       word-break: break-word;
@@ -279,7 +286,7 @@
       touch-action: manipulation;
     }
 
-    /* ====== Arrow button (to bottom) ====== */
+    /* Arrow down */
     .to-bottom{
       position:absolute;
       right: 12px;
@@ -299,9 +306,8 @@
       z-index: 30;
     }
     .to-bottom.show{ display:grid; }
-    .to-bottom:active{ transform: translateY(1px); }
 
-    /* ====== AUTH MODAL ====== */
+    /* ===== Auth modal ===== */
     .modal-overlay{
       position:fixed; inset:0;
       background: rgba(0,0,0,.55);
@@ -310,6 +316,7 @@
       padding: 18px;
     }
     .modal-overlay.open{ display:grid; place-items:center; }
+
     .modal{
       width: min(520px, 100%);
       background: var(--card);
@@ -332,8 +339,8 @@
       cursor:pointer;
       font-size: 13px;
       opacity:.95;
-      touch-action: manipulation;
       user-select:none;
+      touch-action: manipulation;
     }
     .tab.active{ background: var(--btn2); }
     .modal-body{ padding: 14px; display:flex; flex-direction: column; gap: 10px; }
@@ -358,9 +365,9 @@
       touch-action: manipulation;
     }
     .err{ font-size: 12px; color:#ffd3d3; opacity:.95; display:none; }
-    .modal-hint{ font-size: 12px; opacity:.85; }
+    .modal-hint{ font-size: 12px; opacity:.85; color: var(--muted); }
 
-    /* ====== MOBILE: drawer sidebar + bottom sheet for create ====== */
+    /* ===== Mobile: drawer + sheet ===== */
     .mobile-only{ display:none; }
 
     .drawer-backdrop{
@@ -371,7 +378,7 @@
     }
     .drawer-backdrop.open{ display:block; }
 
-    /* Bottom sheet */
+    /* Bottom sheet (mobile create) */
     .sheet-overlay{
       position: fixed; inset:0;
       background: rgba(0,0,0,.45);
@@ -419,13 +426,14 @@
       background: var(--btn);
       color:#e6eefc;
       cursor:pointer;
+      touch-action: manipulation;
     }
 
     @media (max-width: 900px){
-      .wrap{ padding: 0; }
+      .wrap{ padding: 0; height: 100dvh; }
       .card{
         width: 100%;
-        height: 100vh;
+        height: 100dvh;
         border-radius: 0;
         border-left: 0;
         border-right: 0;
@@ -437,16 +445,21 @@
 
       .sidebar{
         position: fixed;
-        top: 58px;
+        top: 0; /* мы учитываем safe-area в .top, поэтому sidebar с 0 */
         left: 0;
         width: min(360px, 92vw);
-        height: calc(100vh - 58px);
+        height: 100dvh;
         transform: translateX(-110%);
         transition: transform .2s ease;
         z-index: 130;
         box-shadow: 0 18px 50px rgba(0,0,0,.45);
+        /* Важно: внутри sidebar есть .topbar? нет. поэтому даём отступ сверху */
+        padding-top: calc(58px + env(safe-area-inset-top)); /* чтобы не залезло под top */
       }
       .sidebar.open{ transform: translateX(0); }
+
+      /* На телефоне popover запрещаем полностью */
+      .popover{ display:none !important; }
 
       .msgs{ padding: 12px; }
       .msg{ max-width: 92%; }
@@ -477,10 +490,10 @@
         <div class="sidebar" id="sidebar">
           <div class="row" style="justify-content: space-between;">
             <div><b>Chats</b></div>
-
             <div class="iconbar">
               <div class="pop-wrap">
                 <div class="iconbtn" id="btnOpenCreateGroup" title="New group chat">➕</div>
+                <!-- Desktop popover only -->
                 <div class="popover" id="popGroup">
                   <div class="head">
                     <b>Новый групповой чат</b>
@@ -490,12 +503,13 @@
                   <div class="actions">
                     <button id="btnCreateGroup" type="button">Create</button>
                   </div>
-                  <div class="small" style="margin-top:8px; opacity:.85;">Создаст чат и переключит тебя в него.</div>
+                  <div class="small" style="margin-top:8px;">Создаст чат и переключит тебя в него.</div>
                 </div>
               </div>
 
               <div class="pop-wrap">
                 <div class="iconbtn" id="btnOpenCreateDM" title="New DM">💬</div>
+                <!-- Desktop popover only -->
                 <div class="popover" id="popDM">
                   <div class="head">
                     <b>Новый DM</b>
@@ -505,7 +519,7 @@
                   <div class="actions">
                     <button id="btnCreateDM" type="button">Open DM</button>
                   </div>
-                  <div class="small" style="margin-top:8px; opacity:.85;">Пользователь должен быть зарегистрирован.</div>
+                  <div class="small" style="margin-top:8px;">Пользователь должен быть зарегистрирован.</div>
                 </div>
               </div>
 
@@ -531,8 +545,6 @@
         <!-- Chat -->
         <div class="chat">
           <div class="msgs" id="msgs"></div>
-
-          <!-- стрелка вниз -->
           <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
 
           <div class="composer">
@@ -544,7 +556,7 @@
     </div>
   </div>
 
-  <!-- AUTH MODAL (locked until login) -->
+  <!-- AUTH MODAL -->
   <div class="modal-overlay" id="authOverlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-top">
@@ -568,7 +580,7 @@
     </div>
   </div>
 
-  <!-- MOBILE SHEET (create group/dm) -->
+  <!-- MOBILE SHEET (create) -->
   <div class="sheet-overlay" id="sheetOverlay" aria-hidden="true">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
@@ -596,17 +608,18 @@
   let activeChatId = localStorage.getItem("activeChatId") || "general";
   let activeChatTitle = "general";
 
-  // ===== Responsive helpers =====
-  function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
+  function isMobile(){
+    return window.matchMedia("(max-width: 900px)").matches;
+  }
 
-  // ===== Drawer =====
+  /* ===== Drawer ===== */
   const sidebar = $("sidebar");
   const backdrop = $("drawerBackdrop");
   function openSidebar(){ sidebar.classList.add("open"); backdrop.classList.add("open"); }
   function closeSidebar(){ sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
   function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
 
-  // ===== Scroll helpers + arrow =====
+  /* ===== Scroll + arrow ===== */
   const toBottomBtn = $("btnToBottom");
   function isNearBottom(el, px=160){
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
@@ -619,7 +632,7 @@
     toBottomBtn.classList.toggle("show", !isNearBottom(box));
   }
 
-  // ---- helpers ----
+  /* ===== UI helpers ===== */
   function setStatus(s){ $("status").textContent = s; }
   function setWhoami(){
     $("whoami").textContent = me ? `👤 ${me}` : "not logged in";
@@ -647,10 +660,10 @@
     div.className = "msg" + (sender === me ? " me" : "");
     const meta = document.createElement("div");
     meta.className = "meta";
-    const t = new Date(created_at * 1000).toLocaleTimeString();
-    meta.textContent = `${sender} • ${t}`;
+    meta.textContent = `${sender} • ${new Date(created_at * 1000).toLocaleTimeString()}`;
     const body = document.createElement("div");
     body.textContent = text;
+
     div.appendChild(meta);
     div.appendChild(body);
     box.appendChild(div);
@@ -674,12 +687,12 @@
     return data;
   }
 
-  // ===== AUTH =====
+  /* ===== AUTH ===== */
   let authMode = "login";
   function openAuth(mode="login"){
     authMode = mode;
     $("authOverlay").classList.add("open");
-    $("authOverlay").setAttribute("aria-hidden", "false");
+    $("authOverlay").setAttribute("aria-hidden","false");
     $("authError").style.display = "none";
     $("authError").textContent = "";
     setAuthTab(mode);
@@ -689,14 +702,14 @@
   }
   function closeAuth(){
     $("authOverlay").classList.remove("open");
-    $("authOverlay").setAttribute("aria-hidden", "true");
+    $("authOverlay").setAttribute("aria-hidden","true");
   }
   function setAuthTab(mode){
     authMode = mode;
-    $("tabLogin").classList.toggle("active", mode === "login");
-    $("tabRegister").classList.toggle("active", mode === "register");
-    $("btnAuthSubmit").textContent = (mode === "login") ? "Login" : "Register";
-    $("authPassword").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
+    $("tabLogin").classList.toggle("active", mode==="login");
+    $("tabRegister").classList.toggle("active", mode==="register");
+    $("btnAuthSubmit").textContent = (mode==="login") ? "Login" : "Register";
+    $("authPassword").setAttribute("autocomplete", mode==="login" ? "current-password" : "new-password");
   }
   function authError(msg){
     $("authError").style.display = "";
@@ -705,9 +718,8 @@
   async function authSubmit(){
     const username = $("authUsername").value.trim();
     const password = $("authPassword").value;
-
-    $("authError").style.display = "none";
-    $("authError").textContent = "";
+    $("authError").style.display="none";
+    $("authError").textContent="";
 
     try{
       if (authMode === "register"){
@@ -716,7 +728,6 @@
       const data = await api("/api/login", "POST", {username, password});
       token = data.token;
       me = data.username;
-
       localStorage.setItem("token", token);
       localStorage.setItem("username", me);
 
@@ -727,55 +738,16 @@
       await refreshChats();
       if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
       selectChat(activeChatId);
-
     }catch(e){
       authError(e.message);
     }
   }
 
-  // ===== Create: Desktop popover OR Mobile sheet =====
-  const sheet = {
-    overlay: $("sheetOverlay"),
-    title: $("sheetTitle"),
-    input: $("sheetInput"),
-    hint: $("sheetHint"),
-    ok: $("btnSheetAction"),
-    mode: null, // "group" | "dm"
-  };
-
-  function openSheet(mode){
-    sheet.mode = mode;
-    sheet.overlay.classList.add("open");
-    sheet.overlay.setAttribute("aria-hidden", "false");
-
-    if (mode === "group"){
-      sheet.title.textContent = "Новый групповой чат";
-      sheet.input.placeholder = "Название (например: work)";
-      sheet.hint.textContent = "Создаст чат и переключит тебя в него.";
-      sheet.ok.textContent = "Create";
-      sheet.input.value = $("groupTitle").value || "";
-    } else {
-      sheet.title.textContent = "Новый DM";
-      sheet.input.placeholder = "Username пользователя";
-      sheet.hint.textContent = "Пользователь должен быть зарегистрирован.";
-      sheet.ok.textContent = "Open DM";
-      sheet.input.value = $("dmUser").value || "";
-    }
-
-    setTimeout(()=> sheet.input.focus(), 50);
-  }
-
-  function closeSheet(){
-    sheet.overlay.classList.remove("open");
-    sheet.overlay.setAttribute("aria-hidden", "true");
-    sheet.mode = null;
-  }
-
+  /* ===== Desktop popover ===== */
   function closePopovers(){
     $("popGroup").classList.remove("open");
     $("popDM").classList.remove("open");
   }
-
   function toggleDesktopPopover(id){
     const el = $(id);
     const isOpen = el.classList.contains("open");
@@ -784,13 +756,49 @@
   }
 
   document.addEventListener("click", (e) => {
-    // закрыть desktop popover при клике вне
     const groupWrap = $("btnOpenCreateGroup").parentElement;
     const dmWrap = $("btnOpenCreateDM").parentElement;
     if (!groupWrap.contains(e.target) && !dmWrap.contains(e.target)) closePopovers();
   });
 
-  // ===== Chats =====
+  /* ===== Mobile sheet ===== */
+  const sheet = {
+    overlay: $("sheetOverlay"),
+    title: $("sheetTitle"),
+    input: $("sheetInput"),
+    hint: $("sheetHint"),
+    ok: $("btnSheetAction"),
+    mode: null
+  };
+
+  function openSheet(mode){
+    sheet.mode = mode;
+    sheet.overlay.classList.add("open");
+    sheet.overlay.setAttribute("aria-hidden","false");
+
+    if (mode === "group"){
+      sheet.title.textContent = "Новый групповой чат";
+      sheet.input.placeholder = "Название (например: work)";
+      sheet.hint.textContent = "Создаст чат и переключит тебя в него.";
+      sheet.ok.textContent = "Create";
+      sheet.input.value = "";
+    } else {
+      sheet.title.textContent = "Новый DM";
+      sheet.input.placeholder = "Username пользователя";
+      sheet.hint.textContent = "Пользователь должен быть зарегистрирован.";
+      sheet.ok.textContent = "Open DM";
+      sheet.input.value = "";
+    }
+    setTimeout(()=> sheet.input.focus(), 50);
+  }
+
+  function closeSheet(){
+    sheet.overlay.classList.remove("open");
+    sheet.overlay.setAttribute("aria-hidden","true");
+    sheet.mode = null;
+  }
+
+  /* ===== Chats ===== */
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
@@ -852,7 +860,6 @@
   }
 
   async function createGroupChat(title){
-    if (!token) return openAuth("login");
     const t = (title || "").trim();
     if (!t) return addSystem("⚠️ Введи название чата.");
     const data = await api("/api/chats", "POST", {title: t});
@@ -862,7 +869,6 @@
   }
 
   async function createDM(user){
-    if (!token) return openAuth("login");
     const u = (user || "").trim();
     if (!u) return addSystem("⚠️ Введи username.");
     const data = await api("/api/chats/dm", "POST", {username: u});
@@ -883,9 +889,7 @@
         const other = parts[0] === me ? parts[1] : parts[0];
         activeChatTitle = `DM: ${other}`;
       }
-    } else {
-      activeChatTitle = chatId;
-    }
+    } else activeChatTitle = chatId;
 
     $("msgs").innerHTML = "";
     addSystem(`📌 Chat: ${activeChatTitle}`);
@@ -895,7 +899,7 @@
     loadHistory().catch(err => addSystem("❌ " + err.message));
   }
 
-  // ===== Messages =====
+  /* ===== Messages ===== */
   async function loadHistory(){
     if (!token) return openAuth("login");
     const box = $("msgs");
@@ -909,9 +913,8 @@
   }
 
   function connectWS(){
-    if (!token){ openAuth("login"); return; }
+    if (!token) return openAuth("login");
     if (ws) ws.close();
-
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`);
 
@@ -939,6 +942,7 @@
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("activeChatId");
+
     if (ws) ws.close();
     ws = null;
 
@@ -948,16 +952,18 @@
 
     $("chatlist").innerHTML = "";
     $("msgs").innerHTML = "";
+
     setStatus("");
     setWhoami();
     addSystem("👋 Logged out");
+
     closeSidebar();
     closePopovers();
     closeSheet();
     openAuth("login");
   }
 
-  // ===== Wiring =====
+  /* ===== Wiring ===== */
   $("btnToggleSidebar").onclick = () => toggleSidebar();
   $("drawerBackdrop").onclick = () => closeSidebar();
   window.addEventListener("resize", ()=> { if (!isMobile()) closeSidebar(); });
@@ -972,21 +978,26 @@
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
-  // Open create group/dm
+  // Create buttons: mobile -> sheet, desktop -> popover
   $("btnOpenCreateGroup").onclick = () => {
     if (!token) return openAuth("login");
     if (isMobile()){
+      closePopovers();
       openSheet("group");
     } else {
+      closeSheet();
       toggleDesktopPopover("popGroup");
       setTimeout(()=> $("groupTitle").focus(), 30);
     }
   };
+
   $("btnOpenCreateDM").onclick = () => {
     if (!token) return openAuth("login");
     if (isMobile()){
+      closePopovers();
       openSheet("dm");
     } else {
+      closeSheet();
       toggleDesktopPopover("popDM");
       setTimeout(()=> $("dmUser").focus(), 30);
     }
@@ -1004,6 +1015,7 @@
       if (isMobile()) closeSidebar();
     }catch(e){ addSystem("❌ " + e.message); }
   };
+
   $("btnCreateDM").onclick = async () => {
     try{
       const u = $("dmUser").value;
@@ -1017,16 +1029,16 @@
   $("groupTitle").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateGroup").click(); });
   $("dmUser").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnCreateDM").click(); });
 
-  // Sheet actions
+  // Sheet
   $("btnCloseSheet").onclick = () => closeSheet();
   $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
-
   sheet.ok.onclick = async () => {
     try{
       const value = sheet.input.value;
+      const mode = sheet.mode;
       closeSheet();
-      if (sheet.mode === "group") await createGroupChat(value);
-      if (sheet.mode === "dm") await createDM(value);
+      if (mode === "group") await createGroupChat(value);
+      if (mode === "dm") await createDM(value);
       if (isMobile()) closeSidebar();
     }catch(e){ addSystem("❌ " + e.message); }
   };
@@ -1051,7 +1063,7 @@
     }
   });
 
-  // ===== Bootstrap session =====
+  /* ===== Bootstrap session ===== */
   setWhoami();
 
   if (token){
