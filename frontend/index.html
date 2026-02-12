@@ -246,7 +246,7 @@
     </div>
   </div>
 
-  <!-- AUTH MODAL -->
+  <!-- AUTH MODAL (locked until login) -->
   <div class="modal-overlay" id="authOverlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-top">
@@ -254,7 +254,7 @@
           <div class="tab active" id="tabLogin">Login</div>
           <div class="tab" id="tabRegister">Register</div>
         </div>
-        <button class="xbtn" id="btnCloseAuth" type="button">✕</button>
+        <button class="xbtn" id="btnCloseAuth" type="button" title="Close">✕</button>
       </div>
       <div class="modal-body">
         <input id="authUsername" placeholder="username (3-20: a-z 0-9 _)" autocomplete="username" />
@@ -315,6 +315,7 @@
 
   async function api(path, method="GET", body=null) {
     const opts = { method, headers: {} };
+    if (token) opts.headers["Authorization"] = `Bearer ${token}`;
     if (body) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
@@ -327,7 +328,7 @@
     return data;
   }
 
-  // ---- modal auth ----
+  // ---- auth modal (locked until login) ----
   let authMode = "login"; // login | register
 
   function openAuth(mode="login"){
@@ -339,7 +340,6 @@
 
     setAuthTab(mode);
 
-    // prefill from top remembered
     $("authUsername").value = me || $("authUsername").value || "";
     $("authPassword").value = "";
     setTimeout(()=> $("authUsername").focus(), 50);
@@ -373,7 +373,6 @@
     try{
       if (authMode === "register") {
         await api("/api/register", "POST", {username, password});
-        // после регистрации сразу логиним
         const data = await api("/api/login", "POST", {username, password});
         token = data.token;
         me = data.username;
@@ -468,10 +467,10 @@
 
   async function refreshChats() {
     if (!token) {
-      addSystem("⚠️ Сначала Login.");
+      openAuth("login");
       return;
     }
-    const data = await api(`/api/chats?token=${encodeURIComponent(token)}`);
+    const data = await api(`/api/chats`);
     chats = data.chats || [];
     if (!chats.find(c => c.id === "general")) {
       chats.push({id:"general", type:"group", title:"general", created_at: 0});
@@ -483,7 +482,7 @@
     if (!token) return openAuth("login");
     const title = $("groupTitle").value.trim();
     if (!title) return addSystem("⚠️ Введи название чата.");
-    const data = await api(`/api/chats?token=${encodeURIComponent(token)}`, "POST", {title});
+    const data = await api(`/api/chats`, "POST", {title});
     $("groupTitle").value = "";
     closePopovers();
     addSystem(`✅ Created: ${data.chat.title}`);
@@ -495,7 +494,7 @@
     if (!token) return openAuth("login");
     const username = $("dmUser").value.trim();
     if (!username) return addSystem("⚠️ Введи username.");
-    const data = await api(`/api/chats/dm?token=${encodeURIComponent(token)}`, "POST", {username});
+    const data = await api(`/api/chats/dm`, "POST", {username});
     $("dmUser").value = "";
     closePopovers();
     addSystem(`✅ ${data.chat.title}`);
@@ -532,13 +531,16 @@
     if (!token) return openAuth("login");
     $("msgs").innerHTML = "";
     addSystem(`📥 Loading: ${activeChatTitle}...`);
-    const data = await api(`/api/messages?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`);
+    const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
     $("msgs").innerHTML = "";
     for (const m of data.messages) addMsg(m);
   }
 
   function connectWS() {
-    if (!token) return;
+    if (!token) {
+      openAuth("login");
+      return;
+    }
 
     if (ws) ws.close();
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -581,6 +583,9 @@
     setStatus("");
     setWhoami();
     addSystem("👋 Logged out");
+
+    // lock UI again
+    openAuth("login");
   }
 
   // ---- wiring ----
@@ -589,8 +594,14 @@
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
-  $("btnCloseAuth").onclick = () => closeAuth();
-  $("authOverlay").addEventListener("click", (e)=>{ if (e.target === $("authOverlay")) closeAuth(); });
+
+  // IMPORTANT: cannot close auth modal if not authed
+  $("btnCloseAuth").onclick = () => {
+    if (!token) return;
+    closeAuth();
+  };
+  // IMPORTANT: do NOT close on overlay click
+  // $("authOverlay").addEventListener("click", ... )  <-- removed by design
 
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
@@ -619,20 +630,41 @@
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
-  // ---- restore session ----
+  // ESC closes popovers (not auth)
+  document.addEventListener("keydown", (e)=>{
+    if (e.key === "Escape") closePopovers();
+  });
+
+  // ---- bootstrap session ----
   setWhoami();
+
   if (token) {
-    addSystem(`🔁 Restoring session for ${me || "user"}...`);
-    refreshChats()
+    addSystem("🔁 Checking session...");
+    api("/api/me")
+      .then(data => {
+        me = data.username;
+        localStorage.setItem("username", me);
+        setWhoami();
+        return refreshChats();
+      })
       .then(() => {
         if (!chats.find(c => c.id === activeChatId)) activeChatId = "general";
         selectChat(activeChatId);
       })
-      .catch(() => {});
+      .catch(() => {
+        // token invalid / expired
+        token = "";
+        localStorage.removeItem("token");
+        localStorage.removeItem("username");
+        localStorage.removeItem("activeChatId");
+        me = "";
+        setWhoami();
+        addSystem("🔐 Сессия истекла. Войди снова.");
+        openAuth("login");
+      });
   } else {
-    addSystem("👋 Привет! Нажми Login / Register сверху.");
-    // можно сразу открыть модалку:
-    // openAuth("login");
+    addSystem("🔐 Требуется авторизация.");
+    openAuth("login");
   }
 </script>
 </body>
