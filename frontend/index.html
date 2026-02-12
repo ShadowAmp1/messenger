@@ -15,24 +15,25 @@
     .sidebar { border-right: 1px solid #24304a; padding: 14px; }
     .chat { display:flex; flex-direction: column; }
     .msgs { flex:1; overflow:auto; padding: 14px; display:flex; flex-direction: column; gap: 10px; }
-    .msg { max-width: 75%; padding: 10px 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; }
+    .msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; }
     .me { align-self: flex-end; background:#12284a; }
     .meta { font-size: 12px; opacity: .8; margin-bottom: 4px; }
     .composer { display:flex; gap: 10px; padding: 14px; border-top: 1px solid #24304a; }
     .composer input { flex:1; padding: 12px; border-radius: 12px; border: 1px solid #24304a; background:#0b1220; color:#e6eefc; }
     .composer button { padding: 12px 16px; border-radius: 12px; border: 1px solid #24304a; background:#1b2742; color:#e6eefc; cursor:pointer; }
     .hint { font-size: 13px; opacity: .9; }
-    .row { display:flex; gap: 8px; margin-top: 10px; }
+    .row { display:flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .small { font-size: 12px; opacity: .8; margin-top: 8px; word-break: break-word; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <div class="top">
-        <input id="username" placeholder="username" />
-        <input id="password" placeholder="password" type="password" />
-        <button id="btnRegister">Register</button>
-        <button id="btnLogin">Login</button>
+        <input id="username" placeholder="username (3-20, a-z 0-9 _)" />
+        <input id="password" placeholder="password (min 6)" type="password" />
+        <button id="btnRegister" type="button">Register</button>
+        <button id="btnLogin" type="button">Login</button>
       </div>
 
       <div class="grid">
@@ -40,17 +41,18 @@
           <div><b>Chats</b></div>
           <div class="hint">Пока один чат: <b>general</b></div>
           <div class="row">
-            <button id="btnLoad">Load history</button>
-            <button id="btnLogout">Logout</button>
+            <button id="btnHealth" type="button">Health</button>
+            <button id="btnLoad" type="button">Load history</button>
+            <button id="btnLogout" type="button">Logout</button>
           </div>
-          <div style="margin-top:10px; font-size:12px; opacity:.8" id="status"></div>
+          <div class="small" id="status"></div>
         </div>
 
         <div class="chat">
           <div class="msgs" id="msgs"></div>
           <div class="composer">
             <input id="text" placeholder="Напиши сообщение..." />
-            <button id="btnSend">Send</button>
+            <button id="btnSend" type="button">Send</button>
           </div>
         </div>
       </div>
@@ -65,6 +67,15 @@
   let ws = null;
 
   function setStatus(s){ $("status").textContent = s; }
+
+  function addSystem(text) {
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.style.opacity = ".85";
+    div.textContent = text;
+    $("msgs").appendChild(div);
+    $("msgs").scrollTop = $("msgs").scrollHeight;
+  }
 
   function addMsg({sender, text, created_at}) {
     const div = document.createElement("div");
@@ -81,37 +92,44 @@
     $("msgs").scrollTop = $("msgs").scrollHeight;
   }
 
-  function addSystem(text) {
-    const div = document.createElement("div");
-    div.className = "msg";
-    div.style.opacity = ".8";
-    div.textContent = text;
-    $("msgs").appendChild(div);
-    $("msgs").scrollTop = $("msgs").scrollHeight;
-  }
-
+  // Robust API helper: shows real server response (even HTML)
   async function api(path, method="GET", body=null) {
     const opts = { method, headers: {} };
     if (body) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
+
     const res = await fetch(path, opts);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Request failed");
+    const raw = await res.text();
+
+    let data = {};
+    try { data = JSON.parse(raw); }
+    catch { data = { detail: raw }; }
+
+    if (!res.ok) {
+      throw new Error(`${res.status} ${res.statusText}: ${data.detail || raw}`);
+    }
     return data;
   }
 
-  async function register() {
-    const username = $("username").value.trim();
-    const password = $("password").value;
-    await api("/api/register", "POST", {username, password});
-    addSystem("✅ Registered. Теперь логинься.");
+  async function health() {
+    const data = await api("/api/health");
+    addSystem("✅ Health OK: " + JSON.stringify(data));
   }
 
-  async function login() {
+  async function registerUser() {
     const username = $("username").value.trim();
     const password = $("password").value;
+
+    await api("/api/register", "POST", {username, password});
+    addSystem("✅ Registered. Теперь нажми Login.");
+  }
+
+  async function loginUser() {
+    const username = $("username").value.trim();
+    const password = $("password").value;
+
     const data = await api("/api/login", "POST", {username, password});
     token = data.token;
     me = data.username;
@@ -132,6 +150,7 @@
   function connectWS() {
     if (!token) return;
     if (ws) ws.close();
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
 
@@ -165,14 +184,39 @@
     addSystem("👋 Logged out");
   }
 
-  $("btnRegister").onclick = () => register().catch(e => addSystem("❌ " + e.message));
-  $("btnLogin").onclick = () => login().catch(e => addSystem("❌ " + e.message));
-  $("btnLoad").onclick = () => loadHistory().catch(e => addSystem("❌ " + e.message));
-  $("btnSend").onclick = () => send();
-  $("btnLogout").onclick = () => logout();
+  $("btnRegister").addEventListener("click", (e) => {
+    e.preventDefault();
+    registerUser().catch(err => addSystem("❌ " + err.message));
+  });
+
+  $("btnLogin").addEventListener("click", (e) => {
+    e.preventDefault();
+    loginUser().catch(err => addSystem("❌ " + err.message));
+  });
+
+  $("btnHealth").addEventListener("click", (e) => {
+    e.preventDefault();
+    health().catch(err => addSystem("❌ " + err.message));
+  });
+
+  $("btnLoad").addEventListener("click", (e) => {
+    e.preventDefault();
+    loadHistory().catch(err => addSystem("❌ " + err.message));
+  });
+
+  $("btnSend").addEventListener("click", (e) => {
+    e.preventDefault();
+    send();
+  });
+
+  $("btnLogout").addEventListener("click", (e) => {
+    e.preventDefault();
+    logout();
+  });
+
   $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 
-  // auto reconnect if token exists
+  // Auto restore
   if (token) {
     addSystem(`🔁 Restoring session for ${me || "user"}...`);
     connectWS();
