@@ -257,6 +257,22 @@ def init_db() -> None:
 
             # --- backfill columns for older DBs ---
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;")
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stories (
+                    id BIGSERIAL PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    media_url TEXT NOT NULL,
+                    media_kind TEXT NOT NULL,
+                    caption TEXT,
+                    created_at BIGINT NOT NULL,
+                    expires_at BIGINT NOT NULL
+                );
+                """
+            )
 
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at BIGINT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;")
@@ -604,6 +620,11 @@ class RoleUpdateIn(BaseModel):
     role: str
 
 
+class ProfileUpdateIn(BaseModel):
+    display_name: str = ""
+    bio: str = ""
+
+
 # =========================
 # Auth API
 # =========================
@@ -690,9 +711,104 @@ def refresh_tokens(data: RefreshIn):
 def me(username: str = Depends(get_current_username)):
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT username, avatar_url FROM users WHERE username=%s", (username,))
+            cur.execute("SELECT username, avatar_url, display_name, bio FROM users WHERE username=%s", (username,))
             row = cur.fetchone()
-    return {"username": username, "avatar_url": (row["avatar_url"] if row else None)}
+    return {
+        "username": username,
+        "avatar_url": (row["avatar_url"] if row else None),
+        "display_name": (row["display_name"] if row else None),
+        "bio": (row["bio"] if row else None),
+    }
+
+
+@app.patch("/api/profile")
+def update_profile(data: ProfileUpdateIn, username: str = Depends(get_current_username)):
+    display_name = (data.display_name or "").strip()[:40]
+    bio = (data.bio or "").strip()[:200]
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET display_name=%s, bio=%s WHERE username=%s",
+                (display_name or None, bio or None, username),
+            )
+        conn.commit()
+    return {"ok": True, "display_name": display_name, "bio": bio}
+
+
+@app.get("/api/stories")
+def list_stories(username: str = Depends(get_current_username)):
+    now = now_ts()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM stories WHERE expires_at <= %s", (now,))
+            cur.execute(
+                """
+                SELECT s.id, s.username, s.media_url, s.media_kind, s.caption, s.created_at, s.expires_at,
+                       u.avatar_url, COALESCE(NULLIF(u.display_name, ''), u.username) AS display_name
+                FROM stories s
+                JOIN users u ON u.username = s.username
+                WHERE s.expires_at > %s
+                ORDER BY s.created_at DESC
+                LIMIT 100
+                """,
+                (now,),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    return {"stories": rows}
+
+
+@app.post("/api/stories")
+async def create_story(
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    username: str = Depends(get_current_username),
+):
+    content_type = (file.content_type or "").lower()
+    kind = "image" if content_type.startswith("image/") else ("video" if content_type.startswith("video/") else "")
+    if not kind:
+        raise HTTPException(status_code=400, detail="Story supports image/video only")
+
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
+
+    resource_type = "image" if kind == "image" else "video"
+    try:
+        up = cloudinary.uploader.upload(
+            data,
+            folder="messenger/stories",
+            resource_type=resource_type,
+        )
+        url = up.get("secure_url") or up.get("url")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
+
+    now = now_ts()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO stories(username, media_url, media_kind, caption, created_at, expires_at)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (username, url, kind, (caption or "").strip()[:160], now, now + 24 * 60 * 60),
+            )
+            story_id = int(cur.fetchone()["id"])
+        conn.commit()
+    return {"ok": True, "id": story_id, "media_url": url}
+
+
+@app.delete("/api/stories/{story_id}")
+def delete_story(story_id: int, username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM stories WHERE id=%s AND username=%s", (story_id, username))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Story not found")
+        conn.commit()
+    return {"ok": True}
 
 
 # =========================
@@ -764,6 +880,9 @@ def list_chats(username: str = Depends(get_current_username)):
                 )
                 SELECT
                     mc.id, mc.type, mc.title, mc.created_by, mc.created_at,
+                    lm.sender AS last_sender,
+                    lm.text AS last_text,
+                    lm.created_at AS last_created_at,
                     (SELECT s.muted_until FROM settings s WHERE s.chat_id = mc.id) AS muted_until,
                     COALESCE((
                         SELECT COUNT(*)
@@ -777,9 +896,20 @@ def list_chats(username: str = Depends(get_current_username)):
                           AND msg.id > COALESCE((SELECT r.last_read_id FROM reads r WHERE r.chat_id = mc.id), 0)
                     ),0) AS unread
                 FROM my_chats mc
+                LEFT JOIN LATERAL (
+                    SELECT m.sender, m.text, m.created_at
+                    FROM messages m
+                    LEFT JOIN message_hidden h
+                      ON h.message_id = m.id AND h.username = %s
+                    WHERE m.chat_id = mc.id
+                      AND m.deleted_for_all = FALSE
+                      AND h.message_id IS NULL
+                    ORDER BY m.id DESC
+                    LIMIT 1
+                ) lm ON TRUE
                 ORDER BY mc.created_at DESC
                 """,
-                (username, username, username, username, username),
+                (username, username, username, username, username, username),
             )
             rows = cur.fetchall()
     return {"chats": rows}
@@ -1262,12 +1392,23 @@ def list_messages(
             )
             react_rows = cur.fetchall()
 
+            cur.execute(
+                "SELECT message_id, emoji FROM message_reactions WHERE message_id = ANY(%s) AND username=%s",
+                ([int(r["id"]) for r in rows] or [0], username),
+            )
+            mine_rows = cur.fetchall()
+
     by_mid: Dict[int, Dict[str, int]] = {}
     for rr in react_rows:
         by_mid.setdefault(int(rr["message_id"]), {})[rr["emoji"]] = int(rr["cnt"])
 
+    my_by_mid: Dict[int, List[str]] = {}
+    for rr in mine_rows:
+        my_by_mid.setdefault(int(rr["message_id"]), []).append(rr["emoji"])
+
     for r in rows:
         r["reactions"] = by_mid.get(int(r["id"]), {})
+        r["my_reactions"] = my_by_mid.get(int(r["id"]), [])
 
     return {"messages": rows}
 
