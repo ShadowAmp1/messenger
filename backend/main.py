@@ -26,6 +26,7 @@ from fastapi import (
     UploadFile,
     File,
     Form,
+    Query,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -147,8 +148,14 @@ def init_db() -> None:
                     sender TEXT NOT NULL,
                     text TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
+
                     updated_at BIGINT,
                     is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+
+                    deleted_for_all BOOLEAN NOT NULL DEFAULT FALSE,
+                    deleted_at BIGINT,
+                    deleted_by TEXT,
+
                     media_kind TEXT,
                     media_url TEXT,
                     media_mime TEXT,
@@ -157,10 +164,38 @@ def init_db() -> None:
                 """
             )
 
-            # Backward-compatible migrations (if old tables exist)
+            # per-user hide (Delete for me)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS message_hidden (
+                    message_id BIGINT NOT NULL,
+                    username TEXT NOT NULL,
+                    hidden_at BIGINT NOT NULL,
+                    PRIMARY KEY(message_id, username)
+                );
+                """
+            )
+
+            # read markers for unread counts
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_reads (
+                    chat_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    last_read_id BIGINT NOT NULL DEFAULT 0,
+                    updated_at BIGINT NOT NULL,
+                    PRIMARY KEY(chat_id, username)
+                );
+                """
+            )
+
+            # Backward-compatible migrations
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at BIGINT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN NOT NULL DEFAULT FALSE;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at BIGINT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by TEXT;")
 
         conn.commit()
 
@@ -194,6 +229,16 @@ def ensure_general_for(username: str) -> None:
                 """
                 INSERT INTO chat_members(chat_id, username, joined_at)
                 VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                ("general", username, int(time.time())),
+            )
+
+            # init read row
+            cur.execute(
+                """
+                INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                VALUES (%s,%s,0,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
                 ("general", username, int(time.time())),
@@ -312,6 +357,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def _startup():
     init_db()
@@ -324,15 +370,19 @@ class AuthIn(BaseModel):
     username: str
     password: str
 
+
 class ChatCreateIn(BaseModel):
     title: str
+
 
 class DMCreateIn(BaseModel):
     username: str
 
+
 class MsgIn(BaseModel):
     chat_id: str
     text: str
+
 
 class MsgEditIn(BaseModel):
     text: str
@@ -443,20 +493,52 @@ async def upload_avatar(
 # =========================
 @app.get("/api/chats")
 def list_chats(username: str = Depends(get_current_username)):
+    """
+    returns chats + unread_count for this user
+    """
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT c.id, c.type, c.title, c.created_at, c.created_by
+                SELECT c.id, c.type, c.title, c.created_at, c.created_by,
+                       COALESCE(r.last_read_id, 0) as last_read_id
                 FROM chats c
                 JOIN chat_members m ON m.chat_id = c.id
+                LEFT JOIN chat_reads r ON r.chat_id = c.id AND r.username = m.username
                 WHERE m.username=%s
                 ORDER BY c.created_at DESC
                 """,
                 (username,),
             )
             rows = cur.fetchall()
-    return {"chats": rows}
+
+            # compute unread per chat
+            out = []
+            for c in rows:
+                chat_id = c["id"]
+                last_read = int(c.get("last_read_id") or 0)
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*)::BIGINT AS cnt
+                    FROM messages msg
+                    WHERE msg.chat_id=%s
+                      AND msg.id > %s
+                      AND msg.sender <> %s
+                      AND msg.deleted_for_all = FALSE
+                      AND NOT EXISTS (
+                        SELECT 1 FROM message_hidden h
+                        WHERE h.message_id = msg.id AND h.username=%s
+                      )
+                    """,
+                    (chat_id, last_read, username, username),
+                )
+                unread = int(cur.fetchone()["cnt"])
+                d = dict(c)
+                d["unread"] = unread
+                out.append(d)
+
+    return {"chats": out}
 
 
 @app.post("/api/chats")
@@ -478,6 +560,14 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
                 """
                 INSERT INTO chat_members(chat_id, username, joined_at)
                 VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, username, now),
+            )
+            cur.execute(
+                """
+                INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                VALUES (%s,%s,0,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
                 (chat_id, username, now),
@@ -520,22 +610,23 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
                 )
 
             now = int(time.time())
-            cur.execute(
-                """
-                INSERT INTO chat_members(chat_id, username, joined_at)
-                VALUES (%s,%s,%s)
-                ON CONFLICT (chat_id, username) DO NOTHING
-                """,
-                (chat_id, username, now),
-            )
-            cur.execute(
-                """
-                INSERT INTO chat_members(chat_id, username, joined_at)
-                VALUES (%s,%s,%s)
-                ON CONFLICT (chat_id, username) DO NOTHING
-                """,
-                (chat_id, other, now),
-            )
+            for u in (username, other):
+                cur.execute(
+                    """
+                    INSERT INTO chat_members(chat_id, username, joined_at)
+                    VALUES (%s,%s,%s)
+                    ON CONFLICT (chat_id, username) DO NOTHING
+                    """,
+                    (chat_id, u, now),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                    VALUES (%s,%s,0,%s)
+                    ON CONFLICT (chat_id, username) DO NOTHING
+                    """,
+                    (chat_id, u, now),
+                )
 
         conn.commit()
 
@@ -551,22 +642,44 @@ async def delete_chat(chat_id: str, username: str = Depends(get_current_username
         if not is_member(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
 
-        # Правило удаления:
-        # - group: только создатель (created_by) (general удалять нельзя)
-        # - dm: любой участник (удаляет чат полностью)
         if chat_id == "general":
             raise HTTPException(status_code=400, detail="general нельзя удалить.")
         if chat["type"] == "group" and chat["created_by"] != username:
             raise HTTPException(status_code=403, detail="Удалять групповой чат может только создатель.")
 
         with conn.cursor() as cur:
+            cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
             cur.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
+            cur.execute("DELETE FROM chat_reads WHERE chat_id=%s", (chat_id,))
             cur.execute("DELETE FROM chat_members WHERE chat_id=%s", (chat_id,))
             cur.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
         conn.commit()
 
-    # уведомим всех (кто был онлайн)
     await broadcast(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
+    return {"ok": True}
+
+
+# =========================
+# Read marker (unread)
+# =========================
+@app.post("/api/chats/{chat_id}/read")
+def mark_read(chat_id: str, last_id: int = Query(..., ge=0), username: str = Depends(get_current_username)):
+    now = int(time.time())
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (chat_id, username)
+                DO UPDATE SET last_read_id = GREATEST(chat_reads.last_read_id, EXCLUDED.last_read_id),
+                              updated_at = EXCLUDED.updated_at
+                """,
+                (chat_id, username, int(last_id), now),
+            )
+        conn.commit()
     return {"ok": True}
 
 
@@ -582,14 +695,20 @@ def list_messages(chat_id: str, username: str = Depends(get_current_username)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, chat_id, sender, text, created_at, updated_at, is_edited,
+                SELECT id, chat_id, sender, text, created_at,
+                       updated_at, is_edited,
+                       deleted_for_all, deleted_at, deleted_by,
                        media_kind, media_url, media_mime, media_name
                 FROM messages
                 WHERE chat_id=%s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM message_hidden h
+                    WHERE h.message_id = messages.id AND h.username=%s
+                  )
                 ORDER BY id DESC
                 LIMIT 200
                 """,
-                (chat_id,),
+                (chat_id, username),
             )
             rows = cur.fetchall()
 
@@ -613,8 +732,9 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
             cur.execute(
                 """
                 INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
+                                     deleted_for_all, deleted_at, deleted_by,
                                      media_kind, media_url, media_mime, media_name)
-                VALUES(%s,%s,%s,%s,NULL,FALSE,NULL,NULL,NULL,NULL)
+                VALUES(%s,%s,%s,%s,NULL,FALSE,FALSE,NULL,NULL,NULL,NULL,NULL,NULL)
                 RETURNING id
                 """,
                 (chat_id, username, text, ts),
@@ -631,6 +751,9 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
         "created_at": ts,
         "updated_at": None,
         "is_edited": False,
+        "deleted_for_all": False,
+        "deleted_at": None,
+        "deleted_by": None,
         "media_kind": None,
         "media_url": None,
         "media_mime": None,
@@ -643,28 +766,26 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
 @app.patch("/api/messages/{message_id}")
 async def edit_message(message_id: int, data: MsgEditIn, username: str = Depends(get_current_username)):
     new_text = (data.text or "").strip()
-    if not new_text or len(new_text) > 2000:
-        raise HTTPException(status_code=400, detail="Текст: 1-2000 символов.")
+    if len(new_text) > 2000:
+        raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
 
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, chat_id, sender, media_kind
+                SELECT id, chat_id, sender, deleted_for_all
                 FROM messages
                 WHERE id=%s
                 """,
                 (message_id,),
             )
             row = cur.fetchone()
-
             if not row:
                 raise HTTPException(status_code=404, detail="Сообщение не найдено.")
+            if row["deleted_for_all"]:
+                raise HTTPException(status_code=400, detail="Сообщение уже удалено у всех.")
             if row["sender"] != username:
                 raise HTTPException(status_code=403, detail="Можно редактировать только свои сообщения.")
-            if row["media_kind"] is not None:
-                # чтобы было проще: редактируем только текстовые
-                raise HTTPException(status_code=400, detail="Редактирование медиа-сообщений пока выключено.")
 
             chat_id = row["chat_id"]
             if not is_member(conn, chat_id, username):
@@ -691,6 +812,70 @@ async def edit_message(message_id: int, data: MsgEditIn, username: str = Depends
     }
     await broadcast(chat_id, event)
     return {"ok": True, "message": event}
+
+
+@app.delete("/api/messages/{message_id}")
+async def delete_message(
+    message_id: int,
+    scope: str = Query("me", pattern="^(me|all)$"),
+    username: str = Depends(get_current_username),
+):
+    """
+    scope=me  -> hide only for this user (can be any message in chat)
+    scope=all -> delete_for_all (only if sender==username)
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, chat_id, sender, deleted_for_all FROM messages WHERE id=%s", (message_id,))
+            msg = cur.fetchone()
+            if not msg:
+                raise HTTPException(status_code=404, detail="Сообщение не найдено.")
+
+            chat_id = msg["chat_id"]
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+            now = int(time.time())
+
+            if scope == "me":
+                cur.execute(
+                    """
+                    INSERT INTO message_hidden(message_id, username, hidden_at)
+                    VALUES (%s,%s,%s)
+                    ON CONFLICT (message_id, username) DO NOTHING
+                    """,
+                    (message_id, username, now),
+                )
+                conn.commit()
+                return {"ok": True, "scope": "me"}
+
+            # scope == "all"
+            if msg["deleted_for_all"]:
+                return {"ok": True, "scope": "all"}  # already
+            if msg["sender"] != username:
+                raise HTTPException(status_code=403, detail="Удалить у всех можно только свои сообщения.")
+
+            cur.execute(
+                """
+                UPDATE messages
+                SET deleted_for_all=TRUE, deleted_at=%s, deleted_by=%s,
+                    media_url=NULL, media_mime=NULL, media_name=NULL, media_kind=NULL,
+                    text='(deleted)'
+                WHERE id=%s
+                """,
+                (now, username, message_id),
+            )
+        conn.commit()
+
+    event = {
+        "type": "message_deleted_all",
+        "id": message_id,
+        "chat_id": chat_id,
+        "deleted_at": now,
+        "deleted_by": username,
+    }
+    await broadcast(chat_id, event)
+    return {"ok": True, "scope": "all"}
 
 
 @app.post("/api/upload")
@@ -743,8 +928,9 @@ async def upload(
             cur.execute(
                 """
                 INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
+                                     deleted_for_all, deleted_at, deleted_by,
                                      media_kind, media_url, media_mime, media_name)
-                VALUES (%s,%s,%s,%s,NULL,FALSE,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,NULL,FALSE,FALSE,NULL,NULL,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (
@@ -770,6 +956,9 @@ async def upload(
         "created_at": ts,
         "updated_at": None,
         "is_edited": False,
+        "deleted_for_all": False,
+        "deleted_at": None,
+        "deleted_by": None,
         "media_kind": kind,
         "media_url": media_url,
         "media_mime": mime,
@@ -783,16 +972,19 @@ async def upload(
 # =========================
 # WebSocket connections
 # =========================
-connections: Dict[str, Set[WebSocket]] = {}
+connections: Dict[str, Set[WebSocket]] = {}  # chat_id -> set(ws)
+
 
 def add_conn(chat_id: str, ws: WebSocket) -> None:
     connections.setdefault(chat_id, set()).add(ws)
+
 
 def remove_conn(chat_id: str, ws: WebSocket) -> None:
     if chat_id in connections:
         connections[chat_id].discard(ws)
         if not connections[chat_id]:
             connections.pop(chat_id, None)
+
 
 async def broadcast(chat_id: str, event: dict) -> None:
     conns = list(connections.get(chat_id, set()))
@@ -831,7 +1023,18 @@ async def ws_endpoint(ws: WebSocket):
 
     try:
         while True:
-            await ws.receive_text()
+            raw = await ws.receive_text()
+            # client can send typing events
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+
+            if isinstance(data, dict) and data.get("type") == "typing":
+                is_typing = bool(data.get("is_typing", False))
+                ev = {"type": "typing", "chat_id": chat_id, "username": username, "is_typing": is_typing}
+                await broadcast(chat_id, ev)
+
     except WebSocketDisconnect:
         pass
     finally:
