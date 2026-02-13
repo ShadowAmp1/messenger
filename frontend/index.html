@@ -7,12 +7,15 @@
 
   <style>
     :root{
-      --bg:#0b1220;
-      --card:#121a2b;
-      --border:#24304a;
-      --muted:rgba(230,238,252,.85);
-      --btn:#1b2742;
-      --shadow: 0 18px 50px rgba(0,0,0,.5);
+      --bg:#d7e5f0;
+      --card:#ffffff;
+      --border:#d6e2ec;
+      --muted:#6f8498;
+      --btn:#e8f1f8;
+      --primary:#4ea4f6;
+      --incoming:#ffffff;
+      --outgoing:#d9fdd3;
+      --shadow: 0 10px 32px rgba(26, 50, 74, .18);
     }
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
@@ -20,7 +23,7 @@
       margin:0;
       font-family: system-ui, Arial;
       background: var(--bg);
-      color:#e6eefc;
+      color:#102331;
       overflow: hidden;
     }
     .wrap{ height: 100dvh; padding: 16px; display:flex; align-items:center; justify-content:center; }
@@ -29,7 +32,7 @@
       height: calc(100dvh - 32px);
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: 18px;
       overflow: hidden;
       display:flex;
       flex-direction: column;
@@ -43,7 +46,7 @@
       justify-content: space-between;
       padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
       border-bottom: 1px solid var(--border);
-      background: rgba(18,26,43,.92);
+      background: #ffffffee;
       backdrop-filter: blur(6px);
       z-index: 50;
     }
@@ -54,7 +57,7 @@
       padding: 4px 10px;
       border:1px solid var(--border);
       border-radius:999px;
-      background:#0b1220;
+      background:#f4f8fb;
       white-space:nowrap;
       max-width: 46vw;
       overflow:hidden;
@@ -67,10 +70,10 @@
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .btn{
       padding: 10px 14px;
-      border-radius: 10px;
+      border-radius: 999px;
       border: 1px solid var(--border);
       background: var(--btn);
-      color:#e6eefc;
+      color:#224259;
       cursor:pointer;
       user-select:none;
       touch-action: manipulation;
@@ -84,7 +87,7 @@
       height: 26px;
       border-radius: 999px;
       border: 1px solid var(--border);
-      background: rgba(255,255,255,.06);
+      background: #d7e5f0;
       object-fit: cover;
       display:none;
     }
@@ -99,7 +102,7 @@
 
     .sidebar{
       border-right: 1px solid var(--border);
-      background: rgba(0,0,0,.08);
+      background: #f4f8fb;
       min-height: 0;
       display:flex;
       flex-direction: column;
@@ -117,9 +120,9 @@
     .iconbtn{
       width: 40px;
       height: 40px;
-      border-radius: 10px;
+      border-radius: 50%;
       border:1px solid var(--border);
-      background: rgba(255,255,255,.03);
+      background: #ffffff;
       display:grid;
       place-items:center;
       cursor:pointer;
@@ -130,16 +133,16 @@
 
     input, textarea{
       width: 100%;
-      background: rgba(255,255,255,.03);
-      color:#e6eefc;
+      background: #ffffff;
+      color:#102331;
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 10px 12px;
       outline: none;
     }
     input:focus, textarea:focus{
-      border-color: rgba(140,170,255,.55);
-      box-shadow: 0 0 0 3px rgba(120,160,255,.10);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(78,164,246,.15);
     }
     .sep{ height:1px; background: var(--border); opacity:.7; margin: 4px 0; }
 
@@ -153,8 +156,8 @@
     }
     .chatitem{
       border:1px solid var(--border);
-      background: rgba(255,255,255,.03);
-      border-radius: 12px;
+      background: #ffffff;
+      border-radius: 10px;
       padding: 10px;
       display:flex;
       align-items:center;
@@ -166,8 +169,9 @@
     }
     .chatitem:hover{ filter:brightness(1.08); }
     .chatitem.active{
-      outline: 2px solid rgba(120,160,255,.25);
-      background: rgba(120,160,255,.08);
+      outline: 0;
+      border-color: #c7d9e6;
+      background: #eaf2f9;
     }
     .chatitem .left{ min-width:0; }
     .chatitem .title{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
@@ -175,7 +179,7 @@
     .badge{
       font-size: 12px;
       border:1px solid var(--border);
-      background: rgba(0,0,0,.12);
+      background: #f4f8fb;
       padding: 4px 8px;
       border-radius: 999px;
       opacity: .9;
@@ -184,7 +188,7 @@
     .unread{
       font-size: 12px;
       border:1px solid rgba(120,160,255,.25);
-      background: rgba(120,160,255,.12);
+      background: rgba(78,164,246,.14);
       padding: 4px 8px;
       border-radius: 999px;
       flex: 0 0 auto;
@@ -194,8 +198,8 @@
       width: 34px; height: 34px;
       border-radius: 10px;
       border:1px solid var(--border);
-      background: rgba(255,91,91,.10);
-      color: #ffdede;
+      background: #ffe8e8;
+      color: #b43a3a;
       display:grid;
       place-items:center;
       cursor:pointer;
@@ -221,7 +225,7 @@
     .msg{
       max-width: min(720px, 92%);
       border: 1px solid var(--border);
-      background: rgba(255,255,255,.03);
+      background: var(--incoming);
       border-radius: 14px;
       padding: 10px 12px;
       display:flex;
@@ -231,8 +235,8 @@
     }
     .msg.me{
       align-self:flex-end;
-      background: rgba(120,160,255,.10);
-      border-color: rgba(120,160,255,.20);
+      background: var(--outgoing);
+      border-color: #bfe6bb;
     }
     .meta{
       display:flex;
@@ -240,10 +244,10 @@
       justify-content: space-between;
       gap: 10px;
       font-size: 12px;
-      color: var(--muted);
+      color: #587389;
       opacity: .9;
     }
-    .meta b{ color:#e6eefc; opacity: .95; }
+    .meta b{ color:#18344a; opacity: .95; }
     .edited{
       font-size: 11px;
       opacity: .75;
@@ -254,15 +258,15 @@
       font-style: italic;
     }
 
-    .reply-preview{border-left:3px solid rgba(120,160,255,.5);padding-left:8px;font-size:12px;opacity:.9;margin-bottom:6px;}
+    .reply-preview{border-left:3px solid var(--primary);padding-left:8px;font-size:12px;opacity:.9;margin-bottom:6px;}
     .reactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
-    .react{font-size:12px;border:1px solid var(--border);padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.05);cursor:pointer;}
+    .react{font-size:12px;border:1px solid var(--border);padding:2px 7px;border-radius:999px;background:#f4f8fb;cursor:pointer;}
 
     /* status ticks */
     .ticks{
       font-size: 12px;
       opacity: .9;
-      color: rgba(230,238,252,.75);
+      color: #6f8498;
       align-self: flex-end;
       user-select:none;
       margin-top: 2px;
@@ -273,7 +277,7 @@
       border-radius: 12px;
       overflow:hidden;
       border: 1px solid var(--border);
-      background: rgba(0,0,0,.12);
+      background: #f4f8fb;
     }
     .media img, .media video{
       width: 100%;
@@ -290,7 +294,7 @@
       height: 42px;
       border-radius: 10px;
       border: 1px solid var(--border);
-      background: rgba(0,0,0,.25);
+      background: #ffffff;
       display:grid;
       place-items:center;
       cursor:pointer;
@@ -311,14 +315,14 @@
       gap: 10px;
       align-items:center;
       padding: 10px;
-      background: rgba(0,0,0,.08);
+      background: #f4f8fb;
     }
     .composer button{
       width: 44px; height: 44px;
       border-radius: 12px;
       border:1px solid var(--border);
-      background: rgba(255,255,255,.03);
-      color:#e6eefc;
+      background: #ffffff;
+      color:#102331;
       cursor:pointer;
       user-select:none;
       touch-action: manipulation;
@@ -328,6 +332,12 @@
       flex: 1 1 auto;
       height: 44px;
       border-radius: 12px;
+    }
+    #btnSend{
+      background: #4ea4f6;
+      color: #fff;
+      border-color: #3f95e6;
+      font-weight: 700;
     }
     .hold{
       border-color: rgba(255,91,91,.35) !important;
@@ -340,7 +350,7 @@
       display:flex;
       align-items:center;
       justify-content: space-between;
-      background: rgba(0,0,0,.08);
+      background: #f4f8fb;
     }
     .typing{
       margin-left: 10px;
@@ -393,31 +403,31 @@
       justify-content: space-between;
       padding: 10px 12px;
       border-bottom: 1px solid var(--border);
-      background: rgba(0,0,0,.10);
+      background: #f4f8fb;
     }
     .tabs{ display:flex; gap: 8px; }
     .tab{
       padding: 8px 12px;
       border-radius: 999px;
       border:1px solid var(--border);
-      background: rgba(255,255,255,.03);
+      background: #ffffff;
       cursor:pointer;
       user-select:none;
       font-size: 13px;
       opacity: .9;
     }
     .tab.active{
-      background: rgba(120,160,255,.10);
-      border-color: rgba(120,160,255,.25);
+      background: rgba(78,164,246,.12);
+      border-color: rgba(78,164,246,.35);
       opacity: 1;
       font-weight: 700;
     }
     .xbtn{
       width: 40px; height: 40px;
-      border-radius: 10px;
+      border-radius: 50%;
       border:1px solid var(--border);
-      background: rgba(255,255,255,.03);
-      color:#e6eefc;
+      background: #ffffff;
+      color:#224259;
       cursor:pointer;
       user-select:none;
     }
@@ -430,8 +440,8 @@
     .err{
       display:none;
       border: 1px solid rgba(255,91,91,.35);
-      background: rgba(255,91,91,.10);
-      color:#ffdede;
+      background: #ffe8e8;
+      color:#b43a3a;
       border-radius: 12px;
       padding: 10px 12px;
       font-size: 13px;
@@ -442,8 +452,8 @@
       height: 44px;
       border-radius: 12px;
       border:1px solid var(--border);
-      background: var(--btn);
-      color:#e6eefc;
+      background: #4ea4f6;
+      color:#fff;
       cursor:pointer;
       user-select:none;
       font-weight: 700;
@@ -479,7 +489,7 @@
       justify-content: space-between;
       padding: 10px 12px;
       border-bottom: 1px solid var(--border);
-      background: rgba(0,0,0,.10);
+      background: #f4f8fb;
     }
     .sheet-body{
       padding: 12px;
@@ -493,8 +503,8 @@
       height: 44px;
       border-radius: 12px;
       border:1px solid var(--border);
-      background: var(--btn);
-      color:#e6eefc;
+      background: #4ea4f6;
+      color:#fff;
       cursor:pointer;
       user-select:none;
       font-weight: 700;
@@ -517,7 +527,7 @@
       padding: 10px 12px;
       background: transparent;
       border:0;
-      color:#e6eefc;
+      color:#224259;
       text-align:left;
       cursor:pointer;
     }
@@ -528,8 +538,8 @@
       width:38px;height:38px;
       border-radius:999px;
       border:1px solid var(--border);
-      background:#0b1220;
-      color:#e6eefc;
+      background:#f4f8fb;
+      color:#224259;
       display:grid;
       place-items:center;
       cursor:pointer;
@@ -548,7 +558,7 @@
       height: 34px;
       display:block;
       border-radius: 10px;
-      background: rgba(0,0,0,.12);
+      background: #f4f8fb;
       border: 1px solid var(--border);
       cursor: pointer;
     }
@@ -557,7 +567,7 @@
       justify-content: space-between;
       font-size: 12px;
       opacity: .85;
-      color: var(--muted);
+      color: #587389;
       gap: 10px;
     }
   </style>
@@ -572,8 +582,8 @@
         <div class="top-left">
           <div class="iconbtn" id="btnToggleSidebar" title="Меню">☰</div>
           <div style="min-width:0">
-            <div class="brand">Mini Messenger</div>
-            <div class="small">FastAPI + Render + Postgres + Cloudinary</div>
+            <div class="brand">Mini Telegram Style Messenger</div>
+            <div class="small">Интерфейс в стиле Telegram</div>
           </div>
         </div>
         <div class="row">
@@ -591,7 +601,7 @@
         <div class="sidebar" id="sidebar">
           <div class="sidebar-inner">
             <div class="row" style="justify-content:space-between;">
-              <div><b>Chats</b></div>
+              <div><b>Чаты</b></div>
               <div class="iconbar">
                 <div class="iconbtn" id="btnOpenCreateGroup" title="New group chat">➕</div>
                 <div class="iconbtn" id="btnOpenCreateDM" title="New DM">💬</div>
@@ -602,7 +612,7 @@
             <div class="sep"></div>
 
             <div class="row" style="gap:8px;">
-              <button class="btn" id="btnLoadHistory" type="button" style="flex:1;">Load history</button>
+              <button class="btn" id="btnLoadHistory" type="button" style="flex:1;">История</button>
               <button class="btn" id="btnInvite" type="button" style="flex:1;">Invite</button>
               <button class="btn" id="btnMute" type="button" style="flex:1;">Mute</button>
             </div>
@@ -628,7 +638,7 @@
             <button id="btnRecHold" type="button" title="Hold to record">🎙️</button>
             <div id="replyBox" class="small" style="display:none;min-width:220px;max-width:360px;border:1px solid var(--border);padding:8px;border-radius:10px;"></div>
             <input id="text" placeholder="Напиши сообщение." />
-            <button id="btnSend" type="button">Send</button>
+            <button id="btnSend" type="button">➤</button>
           </div>
 
           <div class="statusbar">
