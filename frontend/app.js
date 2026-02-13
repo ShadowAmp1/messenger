@@ -1,5 +1,6 @@
   const $ = (id) => document.getElementById(id);
   const toggleHidden = (el, hidden) => el.classList.toggle("is-hidden", !!hidden);
+  const escapeHtml = (v) => String(v || "").replace(/[&<>"']/g, (ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
   let lastSidebarFocus = null;
 
   let token = localStorage.getItem("token") || "";
@@ -10,6 +11,8 @@
   let displayName = localStorage.getItem("display_name") || "";
   let profileBio = localStorage.getItem("profile_bio") || "";
   let stories = [];
+  let avatarHistory = [];
+  let contacts = [];
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
@@ -708,6 +711,7 @@
     profile.overlay.classList.add("open");
     profile.overlay.setAttribute("aria-hidden","false");
     loadStories().catch(()=>{});
+    loadAvatarHistory().catch(()=>{});
   }
   function closeProfile(){
     profile.overlay.classList.remove("open");
@@ -1007,6 +1011,8 @@
     activeChatCreatedBy = found ? (found.created_by || "") : "";
 
     $("msgs").innerHTML = "";
+    $("chatHeadTitle").textContent = activeChatTitle || "Чат";
+    $("chatHeadSub").textContent = activeChatType === "group" ? "Групповой чат" : "Личный чат";
     addSystem(`📌 Chat: ${activeChatTitle}`);
 
     renderChatList();
@@ -1463,6 +1469,17 @@
     }
   }
 
+  async function loadAvatarHistory(){
+    if (!token) return;
+    const data = await api('/api/avatar/history');
+    avatarHistory = data.items || [];
+    const box = $("myStories");
+    const hist = document.createElement('div');
+    hist.style.marginTop = '8px';
+    hist.innerHTML = `<b>Предыдущие аватары:</b> ${avatarHistory.length ? avatarHistory.map(a=>`<a href="${escapeHtml(a.avatar_url)}" target="_blank">${new Date((a.created_at||0)*1000).toLocaleDateString()}</a>`).join(' • ') : 'нет'}`;
+    box.appendChild(hist);
+  }
+
   function renderStories(){
     const bar = $("storiesBar");
     if (!stories.length){ bar.innerHTML = ""; return; }
@@ -1508,6 +1525,68 @@
       addSystem(min ? `🔕 muted ${min}m` : "🔔 unmuted");
       await refreshChats(false);
     }catch(e){ addSystem("❌ "+(e.message||e)); }
+  }
+
+  async function loadContacts(){
+    const data = await api('/api/contacts');
+    contacts = data.contacts || [];
+    const list = $("contactsList");
+    list.innerHTML = '';
+    if (!contacts.length){
+      list.innerHTML = '<div class="small">Контактов пока нет</div>';
+      return;
+    }
+    for (const c of contacts){
+      const row = document.createElement('div');
+      row.className = 'chatitem';
+      row.innerHTML = `<div><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
+      list.appendChild(row);
+    }
+  }
+
+  function openContacts(){
+    if (!token) return openAuth('login');
+    $("contactsOverlay").classList.add('open');
+    $("contactsOverlay").setAttribute('aria-hidden','false');
+    loadContacts().catch((e)=>addSystem('❌ '+(e.message||e)));
+  }
+
+  function closeContacts(){
+    $("contactsOverlay").classList.remove('open');
+    $("contactsOverlay").setAttribute('aria-hidden','true');
+  }
+
+  async function addContact(){
+    const u = $("contactUsername").value.trim();
+    if (!u) return;
+    await api('/api/contacts', 'POST', { username: u });
+    $("contactUsername").value = '';
+    await loadContacts();
+  }
+
+  async function openChatInfo(){
+    if (!activeChatId) return;
+    $("chatInfoOverlay").classList.add('open');
+    $("chatInfoOverlay").setAttribute('aria-hidden','false');
+    $("chatInfoTitle").textContent = activeChatTitle;
+    await loadChatOverview('');
+  }
+
+  function closeChatInfo(){
+    $("chatInfoOverlay").classList.remove('open');
+    $("chatInfoOverlay").setAttribute('aria-hidden','true');
+  }
+
+  async function loadChatOverview(keyword){
+    const data = await api(`/api/chats/${encodeURIComponent(activeChatId)}/overview?q=${encodeURIComponent(keyword||'')}`);
+    const msgs = data.messages || [];
+    const media = data.media || [];
+    const links = data.links || [];
+    const members = data.members || [];
+    $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
+    $("chatInfoMedia").innerHTML = `<b>Вложения:</b> ${media.length}`;
+    $("chatInfoLinks").innerHTML = `<b>Ссылки:</b><br>${links.map(l=>escapeHtml((l.text||'').slice(0,90))).join('<br>') || 'нет'}`;
+    $("chatInfoMembers").innerHTML = `<b>Участники:</b><br>${members.map(m=>`${escapeHtml(m.display_name)} (${m.online ? 'в сети' : 'не в сети'})`).join('<br>')}`;
   }
 
   // =========================
@@ -1709,6 +1788,8 @@
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
   $("btnProfile").onclick = () => openProfile();
+  $("btnContacts").onclick = () => openContacts();
+  $("btnChatInfo").onclick = () => openChatInfo();
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
@@ -1736,6 +1817,12 @@
   $("sheetInput").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
   $("btnCloseProfile").onclick = () => closeProfile();
+  $("btnCloseContacts").onclick = () => closeContacts();
+  $("btnCloseChatInfo").onclick = () => closeChatInfo();
+  $("btnAddContact").onclick = () => addContact().catch(e=> addSystem("❌ " + (e.message || e)));
+  $("btnChatInfoSearch").onclick = () => loadChatOverview($("chatInfoSearch").value.trim()).catch(e=> addSystem("❌ " + (e.message || e)));
+  $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
+  $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
   $("btnUploadAvatar").onclick = () => uploadAvatar();
   $("btnSaveProfile").onclick = () => saveProfile();
