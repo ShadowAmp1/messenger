@@ -65,6 +65,7 @@
     body{
       margin:0;
       font-family: system-ui, Arial;
+      background: var(--bg);
       background: radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 18%, var(--bg)) 0%, var(--bg) 45%);
       color:var(--text, #102331);
       overflow: hidden;
@@ -91,7 +92,9 @@
       justify-content: space-between;
       padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
       border-bottom: 1px solid var(--border);
+      background: var(--card);
       background: color-mix(in srgb, var(--card) 92%, transparent);
+      -webkit-backdrop-filter: blur(6px);
       backdrop-filter: blur(6px);
       z-index: 50;
     }
@@ -270,6 +273,7 @@
       display:flex;
       flex-direction: column;
       gap: 12px;
+      background: var(--surface);
       background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 62%, transparent), transparent 18%);
     }
     .msg-row{
@@ -284,6 +288,7 @@
       height: 34px;
       border-radius: 50%;
       border: 1px solid var(--border);
+      background: var(--surface-2);
       background: color-mix(in srgb, var(--surface-2) 88%, var(--primary));
       color: var(--text-strong);
       font-size: 13px;
@@ -291,6 +296,7 @@
       display:grid;
       place-items:center;
       object-fit: cover;
+      overflow: hidden;
       flex: 0 0 auto;
     }
     .msg{
@@ -308,6 +314,7 @@
     .msg.me{
       align-self:flex-end;
       background: var(--outgoing);
+      border-color: var(--border);
       border-color: color-mix(in srgb, var(--outgoing) 65%, var(--border));
     }
     .meta{
@@ -387,6 +394,7 @@
       gap: 10px;
       align-items:center;
       padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+      background: var(--surface);
       background: color-mix(in srgb, var(--surface) 82%, var(--card));
     }
     .composer button{
@@ -404,6 +412,7 @@
       flex: 1 1 auto;
       height: 44px;
       border-radius: 12px;
+      background: var(--input);
       background: color-mix(in srgb, var(--input) 88%, var(--card));
     }
     #btnSend{
