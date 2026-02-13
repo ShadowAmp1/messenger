@@ -13,10 +13,6 @@
       --muted:rgba(230,238,252,.85);
       --btn:#1b2742;
       --shadow: 0 18px 50px rgba(0,0,0,.5);
-      --danger: rgba(255,91,91,.95);
-      --dangerBg: rgba(255,91,91,.10);
-      --ok: rgba(120,160,255,.95);
-      --okBg: rgba(120,160,255,.12);
     }
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
@@ -102,7 +98,7 @@
     }
 
     .sidebar{
-      border-right: 1px solid var(--border);
+      border-right: 1px offering: 1px solid var(--border);
       background: rgba(0,0,0,.08);
       min-height: 0;
       display:flex;
@@ -185,9 +181,17 @@
       opacity: .9;
       flex: 0 0 auto;
     }
+    .unread{
+      font-size: 12px;
+      border:1px solid rgba(120,160,255,.25);
+      background: rgba(120,160,255,.12);
+      padding: 4px 8px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      font-weight: 700;
+    }
     .trash{
-      width: 34px;
-      height: 34px;
+      width: 34px; height: 34px;
       border-radius: 10px;
       border:1px solid var(--border);
       background: rgba(255,91,91,.10);
@@ -198,8 +202,6 @@
       user-select:none;
       flex: 0 0 auto;
     }
-    .trash:hover{ filter:brightness(1.08); }
-    .trash:active{ transform: translateY(1px); }
 
     .chat{
       min-height: 0;
@@ -247,6 +249,11 @@
       opacity: .75;
       margin-left: 8px;
     }
+    .deleted{
+      opacity: .7;
+      font-style: italic;
+    }
+
     .media{
       margin-top: 6px;
       border-radius: 12px;
@@ -293,8 +300,7 @@
       background: rgba(0,0,0,.08);
     }
     .composer button{
-      width: 44px;
-      height: 44px;
+      width: 44px; height: 44px;
       border-radius: 12px;
       border:1px solid var(--border);
       background: rgba(255,255,255,.03);
@@ -304,8 +310,6 @@
       touch-action: manipulation;
       font-size: 18px;
     }
-    .composer button:hover{ filter:brightness(1.08); }
-    .composer button:active{ transform: translateY(1px); }
     .composer input{
       flex: 1 1 auto;
       height: 44px;
@@ -323,6 +327,10 @@
       align-items:center;
       justify-content: space-between;
       background: rgba(0,0,0,.08);
+    }
+    .typing{
+      margin-left: 10px;
+      opacity: .85;
     }
 
     /* Drawer for mobile */
@@ -347,7 +355,7 @@
       .sidebar.open{ transform: translateX(0); }
     }
 
-    /* Modal/sheet base */
+    /* Overlays */
     .overlay{
       position: fixed;
       inset: 0;
@@ -393,8 +401,7 @@
       font-weight: 700;
     }
     .xbtn{
-      width: 40px;
-      height: 40px;
+      width: 40px; height: 40px;
       border-radius: 10px;
       border:1px solid var(--border);
       background: rgba(255,255,255,.03);
@@ -428,6 +435,11 @@
       cursor:pointer;
       user-select:none;
       font-weight: 700;
+    }
+    .danger{
+      border-color: rgba(255,91,91,.35) !important;
+      background: rgba(255,91,91,.10) !important;
+      color:#ffdede !important;
     }
 
     /* Create sheet */
@@ -464,10 +476,7 @@
       flex-direction: column;
       gap: 10px;
     }
-    .sheet-actions{
-      display:flex;
-      gap:10px;
-    }
+    .sheet-actions{ display:flex; gap:10px; }
     .sheet-actions button{
       flex: 1 1 auto;
       height: 44px;
@@ -479,11 +488,6 @@
       user-select:none;
       font-weight: 700;
     }
-    .danger{
-      border-color: rgba(255,91,91,.35) !important;
-      background: rgba(255,91,91,.10) !important;
-      color:#ffdede !important;
-    }
 
     /* Context menu */
     .ctx{
@@ -494,7 +498,7 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       box-shadow: var(--shadow);
-      min-width: 180px;
+      min-width: 200px;
       overflow:hidden;
     }
     .ctx.open{ display:block; }
@@ -508,15 +512,9 @@
       cursor:pointer;
     }
     .ctx button:hover{ background: rgba(255,255,255,.05); }
-    .ctx button.danger{ color:#ffdede; }
 
     /* Voice waveform */
-    .voice{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      max-width: 420px;
-    }
+    .voice{ display:flex; align-items:center; gap:10px; max-width: 420px; }
     .voice .play{
       width:38px;height:38px;
       border-radius:999px;
@@ -603,8 +601,7 @@
             <div class="chatlist" id="chatlist"></div>
 
             <div class="small" style="margin-top:auto;">
-              Советы: ➕ групповой чат, 💬 DM, ⟳ обновить. 🗑 удалить чат. ПКМ по своему сообщению → Edit.
-              🎙 держи кнопку — запись; отпусти — предпрослушка.
+              ➕ group • 💬 DM • 🗑 delete chat • ПКМ/long-press msg → Edit/Delete • typing… • unread badges
             </div>
           </div>
         </div>
@@ -616,15 +613,16 @@
           <div class="composer">
             <button id="btnAttach" type="button" title="Фото/Видео/Аудио">📎</button>
             <input id="file" type="file" accept="image/*,video/*,audio/*" style="display:none" />
-
             <button id="btnRecHold" type="button" title="Hold to record">🎙️</button>
-
             <input id="text" placeholder="Напиши сообщение." />
             <button id="btnSend" type="button">Send</button>
           </div>
 
           <div class="statusbar">
-            <div class="small" id="status">—</div>
+            <div class="small">
+              <span id="status">—</span>
+              <span class="typing" id="typing"></span>
+            </div>
             <div class="pill" id="net">offline</div>
           </div>
         </div>
@@ -632,7 +630,7 @@
     </div>
   </div>
 
-  <!-- AUTH MODAL -->
+  <!-- AUTH -->
   <div class="overlay" id="authOverlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-top">
@@ -670,7 +668,7 @@
     </div>
   </div>
 
-  <!-- PROFILE SHEET -->
+  <!-- PROFILE -->
   <div class="sheet-overlay" id="profileOverlay" aria-hidden="true">
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
@@ -706,8 +704,10 @@
 
   <!-- CONTEXT MENU -->
   <div class="ctx" id="ctxMenu">
-    <button id="ctxEdit">Edit message</button>
-    <button id="ctxCancel">Cancel</button>
+    <button id="ctxEdit">Edit</button>
+    <button id="ctxDeleteMe">Delete for me</button>
+    <button id="ctxDeleteAll">Delete for all</button>
+    <button id="ctxCancel" class="danger">Cancel</button>
   </div>
 
 <script>
@@ -721,13 +721,12 @@
   let chats = [];
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
-
-  // local cache to update edited messages quickly
-  const msgElById = new Map();
+  const msgElById = new Map(); // id -> element
+  let lastMsgId = 0;
 
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
-  // --- sound notify (WebAudio beep) ---
+  // --- sound notify ---
   let audioCtx = null;
   function beep(){
     try{
@@ -735,16 +734,14 @@
       const ctx = audioCtx;
       const o = ctx.createOscillator();
       const g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = 880;
+      o.type = "sine"; o.frequency.value = 880;
       g.gain.value = 0.0001;
       o.connect(g); g.connect(ctx.destination);
       const t = ctx.currentTime;
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      o.start(t);
-      o.stop(t + 0.2);
+      o.start(t); o.stop(t + 0.2);
     }catch(_){}
   }
 
@@ -755,7 +752,7 @@
   function closeSidebar(){ sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
   function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
 
-  // --- scroll ---
+  // --- Scroll + read ---
   const toBottomBtn = $("btnToBottom");
   function isNearBottom(el, px=160){
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
@@ -764,18 +761,11 @@
   function updateToBottom(){
     const box = $("msgs");
     toBottomBtn.classList.toggle("show", !isNearBottom(box));
+    if (isNearBottom(box)) maybeMarkRead();
   }
 
   function setStatus(s){ $("status").textContent = s || "—"; }
   function setNet(s){ $("net").textContent = s || "offline"; }
-
-  function escapeHtml(s){
-    return (s ?? "").toString()
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;");
-  }
 
   function addSystem(text){
     const box = $("msgs");
@@ -783,7 +773,7 @@
     div.className = "msg";
     div.innerHTML = `
       <div class="meta"><b>System</b><span>—</span></div>
-      <div>${escapeHtml(text)}</div>
+      <div>${String(text||"")}</div>
     `;
     box.appendChild(div);
     scrollToBottom(box);
@@ -813,7 +803,7 @@
   }
 
   // =========================
-  // Voice waveform player (same as before)
+  // Voice waveform player (same logic)
   // =========================
   const VOICE = { peaksCache: new Map(), audioCache: new Map(), players: new Set() };
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
@@ -1012,7 +1002,6 @@
     $("tabLogin").classList.toggle("active", mode==="login");
     $("tabRegister").classList.toggle("active", mode==="register");
     $("btnAuthSubmit").textContent = (mode==="login") ? "Login" : "Register";
-    $("authPassword").setAttribute("autocomplete", mode==="login" ? "current-password" : "new-password");
     hideAuthError();
   }
   function openAuth(mode="login"){
@@ -1065,7 +1054,7 @@
   }
 
   // =========================
-  // Sheets (create + profile)
+  // Sheets
   // =========================
   const sheet = {
     overlay: $("sheetOverlay"),
@@ -1113,11 +1102,182 @@
   }
 
   // =========================
+  // Voice hold-to-record + preview
+  // =========================
+  const recBtn = $("btnRecHold");
+  let rec = { active:false, mr:null, chunks:[], stream:null };
+  let preview = { blob:null, file:null, url:"" };
+
+  function openVoicePreview(){
+    $("voicePreviewOverlay").classList.add("open");
+    $("voicePreviewOverlay").setAttribute("aria-hidden","false");
+    const holder = $("voicePreviewPlayer");
+    holder.innerHTML = "";
+    const player = createVoicePlayer(preview.url);
+    holder.appendChild(player.root);
+    $("voicePreviewHint").textContent = "Прослушай и отправь / отмена.";
+  }
+  function closeVoicePreview(){
+    $("voicePreviewOverlay").classList.remove("open");
+    $("voicePreviewOverlay").setAttribute("aria-hidden","true");
+    $("voicePreviewPlayer").innerHTML = "";
+  }
+  function clearPreview(){
+    try{ if (preview.url) URL.revokeObjectURL(preview.url); }catch(_){}
+    preview = { blob:null, file:null, url:"" };
+  }
+
+  async function startHoldRec(){
+    if (!token) return openAuth("login");
+    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
+    if (!navigator.mediaDevices?.getUserMedia) return addSystem("⚠️ Нет доступа к микрофону.");
+    if (!window.MediaRecorder) return addSystem("⚠️ MediaRecorder не поддерживается.");
+    try{
+      clearPreview();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+
+      rec.active = true;
+      rec.mr = mr;
+      rec.stream = stream;
+      rec.chunks = [];
+
+      recBtn.classList.add("hold");
+      setStatus("🎙 Recording…");
+
+      mr.ondataavailable = (e) => { if (e.data?.size) rec.chunks.push(e.data); };
+      mr.onstop = () => {
+        try{
+          const blob = new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" });
+          const file = new File([blob], `voice_${Date.now()}.webm`, { type: blob.type });
+          preview.blob = blob;
+          preview.file = file;
+          preview.url = URL.createObjectURL(blob);
+          openVoicePreview();
+        }catch(e){
+          addSystem("❌ " + (e.message || e));
+        }finally{
+          try{ rec.stream?.getTracks().forEach(t => t.stop()); }catch(_){}
+          rec.stream = null; rec.mr = null; rec.chunks = [];
+        }
+      };
+
+      mr.start(200);
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
+  }
+  function stopHoldRec(){
+    if (!rec.active) return;
+    rec.active = false;
+    recBtn.classList.remove("hold");
+    setStatus("—");
+    try{ rec.mr?.stop(); }catch(_){}
+  }
+
+  async function uploadMedia(file, captionOverride=null){
+    if (!token) return openAuth("login");
+    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
+    const caption = captionOverride !== null ? captionOverride : $("text").value.trim();
+    const fd = new FormData();
+    fd.append("chat_id", activeChatId);
+    fd.append("text", caption);
+    fd.append("file", file);
+    setStatus("⏫ Upload…");
+    const res = await fetch("/api/upload", { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: fd });
+    const raw = await res.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
+    if (!res.ok){ setStatus(""); throw new Error(data.detail || raw); }
+    $("text").value = "";
+    $("file").value = "";
+    setStatus(`🟢 WS • ${activeChatTitle}`);
+  }
+
+  async function sendVoiceNow(){
+    if (!preview.file) return;
+    try{
+      setStatus("⏫ Upload voice…");
+      await uploadMedia(preview.file, "");
+      closeVoicePreview();
+      clearPreview();
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }finally{
+      setStatus(`🟢 WS • ${activeChatTitle}`);
+    }
+  }
+
+  // =========================
+  // Avatar upload
+  // =========================
+  async function uploadAvatar(){
+    const f = $("avatarFile").files && $("avatarFile").files[0];
+    if (!f) return $("profileHint").textContent = "Выбери файл.";
+    try{
+      $("profileHint").textContent = "Uploading…";
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await fetch("/api/avatar", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: fd
+      });
+      const raw = await res.text();
+      let data = {};
+      try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
+      if (!res.ok) throw new Error(data.detail || raw);
+      avatarUrl = data.avatar_url || "";
+      localStorage.setItem("avatar_url", avatarUrl || "");
+      setWhoami();
+      $("profileHint").textContent = "✅ Готово!";
+    }catch(e){
+      $("profileHint").textContent = "❌ " + (e.message || e);
+    }
+  }
+
+  // =========================
+  // Typing
+  // =========================
+  let typingTimer = null;
+  let typingSent = false;
+  function wsSendTyping(isTyping){
+    if (!ws || ws.readyState !== 1) return;
+    try{
+      ws.send(JSON.stringify({ type:"typing", is_typing: !!isTyping }));
+    }catch(_){}
+  }
+  function onLocalTyping(){
+    if (!token || !activeChatId) return;
+    if (!typingSent){
+      typingSent = true;
+      wsSendTyping(true);
+    }
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(()=>{
+      typingSent = false;
+      wsSendTyping(false);
+    }, 900);
+  }
+
+  // =========================
   // WS
   // =========================
+  const typingState = new Map(); // username -> bool
+  function renderTyping(){
+    const names = [];
+    for (const [u, on] of typingState.entries()){
+      if (on && u !== me) names.push(u);
+    }
+    $("typing").textContent = names.length ? `${names.join(", ")} печатает…` : "";
+  }
+
   function connectWS(){
     if (!token || !activeChatId) return;
     if (ws) { try{ ws.close(); }catch{} ws = null; }
+
+    typingState.clear();
+    renderTyping();
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${location.host}/ws?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`;
@@ -1132,20 +1292,30 @@
       let data = null;
       try{ data = JSON.parse(ev.data); }catch{ return; }
 
+      if (data.type === "typing" && data.chat_id === activeChatId){
+        typingState.set(data.username, !!data.is_typing);
+        renderTyping();
+        return;
+      }
+
       if (data.type === "message" && data.chat_id === activeChatId){
-        // звук только на чужие сообщения
         if (data.sender && data.sender !== me) beep();
         addMsg(data);
+        refreshChats(false).catch(()=>{}); // update unread counts quickly
         return;
       }
 
       if (data.type === "message_edited" && data.chat_id === activeChatId){
-        applyEdited(data.id, data.text, data.updated_at, data.is_edited);
+        applyEdited(data.id, data.text, true);
+        return;
+      }
+
+      if (data.type === "message_deleted_all" && data.chat_id === activeChatId){
+        applyDeletedAll(data.id);
         return;
       }
 
       if (data.type === "chat_deleted"){
-        // если удалили активный чат — обновим список
         refreshChats(true).catch(()=>{});
         addSystem("🗑 Чат удалён.");
         return;
@@ -1154,7 +1324,7 @@
   }
 
   // =========================
-  // Chats
+  // Chats + unread
   // =========================
   function computeChatTitle(c){
     let title = c.title || c.id;
@@ -1167,7 +1337,6 @@
     }
     return title;
   }
-
   function canDeleteChat(c){
     if (c.id === "general") return false;
     if (c.type === "dm") return true;
@@ -1184,6 +1353,7 @@
       list.appendChild(div);
       return;
     }
+
     for (const c of chats){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
@@ -1192,7 +1362,6 @@
       left.className = "left";
 
       const title = computeChatTitle(c);
-
       const t1 = document.createElement("div");
       t1.className = "title";
       t1.textContent = title;
@@ -1204,17 +1373,22 @@
       left.appendChild(t1);
       left.appendChild(t2);
 
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = (c.type === "dm") ? "DM" : "GROUP";
-
-      item.appendChild(left);
-
       const right = document.createElement("div");
       right.style.display = "flex";
       right.style.gap = "8px";
       right.style.alignItems = "center";
+
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = (c.type === "dm") ? "DM" : "GROUP";
       right.appendChild(badge);
+
+      if (c.unread && Number(c.unread) > 0 && c.id !== activeChatId){
+        const u = document.createElement("span");
+        u.className = "unread";
+        u.textContent = String(c.unread);
+        right.appendChild(u);
+      }
 
       if (canDeleteChat(c)){
         const del = document.createElement("div");
@@ -1223,8 +1397,7 @@
         del.title = "Удалить чат";
         del.onclick = async (e) => {
           e.stopPropagation();
-          const ok = confirm(`Удалить чат "${title}"?`);
-          if (!ok) return;
+          if (!confirm(`Удалить чат "${title}"?`)) return;
           try{
             await api(`/api/chats/${encodeURIComponent(c.id)}`, "DELETE");
             addSystem(`🗑 Deleted: ${title}`);
@@ -1236,6 +1409,7 @@
         right.appendChild(del);
       }
 
+      item.appendChild(left);
       item.appendChild(right);
 
       item.onclick = () => {
@@ -1276,6 +1450,7 @@
   function selectChat(chatId){
     stopAllExcept(null);
     msgElById.clear();
+    lastMsgId = 0;
 
     activeChatId = chatId;
     localStorage.setItem("activeChatId", activeChatId);
@@ -1299,7 +1474,6 @@
     selectChat(data.chat.id);
     addSystem(`✅ Created: ${data.chat.title}`);
   }
-
   async function createDM(user){
     const u = (user || "").trim();
     if (!u) return addSystem("⚠️ Введи username.");
@@ -1310,31 +1484,24 @@
   }
 
   // =========================
-  // Messages + edit
+  // Messages: render/edit/delete
   // =========================
   function addMsg(m){
     const box = $("msgs");
-
     const div = document.createElement("div");
     div.className = "msg" + ((m.sender === me) ? " me" : "");
     div.dataset.msgId = String(m.id || "");
     div.dataset.sender = String(m.sender || "");
-    div.dataset.text = String(m.text || "");
-    div.dataset.mediaKind = String(m.media_kind || "");
+    div.dataset.deletedForAll = String(!!m.deleted_for_all);
 
     const meta = document.createElement("div");
     meta.className = "meta";
 
     const left = document.createElement("b");
     left.textContent = m.sender || "—";
-
     const right = document.createElement("span");
     right.textContent = fmtTs(m.created_at);
 
-    meta.appendChild(left);
-    meta.appendChild(right);
-
-    // edited label
     if (m.is_edited){
       const ed = document.createElement("span");
       ed.className = "edited";
@@ -1342,96 +1509,116 @@
       right.appendChild(ed);
     }
 
+    meta.appendChild(left);
+    meta.appendChild(right);
     div.appendChild(meta);
 
-    const media_url = m.media_url || "";
-    const media_kind = m.media_kind || "";
-    const media_name = m.media_name || "";
-    const text = (m.text || "").trim();
-
-    if (media_url && media_kind === "image"){
-      const wrap = document.createElement("div");
-      wrap.className = "media";
-      const img = document.createElement("img");
-      img.src = media_url;
-      img.alt = media_name || "image";
-      img.loading = "lazy";
-      img.style.cursor = "pointer";
-      img.onclick = () => window.open(media_url, "_blank");
-      wrap.appendChild(img);
-      div.appendChild(wrap);
-    }
-
-    if (media_url && media_kind === "video"){
-      const wrap = document.createElement("div");
-      wrap.className = "media";
-      const video = document.createElement("video");
-      video.src = media_url;
-      video.controls = true;
-      video.preload = "metadata";
-      wrap.appendChild(video);
-      div.appendChild(wrap);
-    }
-
-    if (media_url && media_kind === "audio"){
-      const wrap = document.createElement("div");
-      wrap.className = "media";
-      wrap.style.padding = "10px";
-      const player = createVoicePlayer(media_url);
-      wrap.appendChild(player.root);
-      div.appendChild(wrap);
-    }
-
     const body = document.createElement("div");
-    body.textContent = text;
-    body.style.marginTop = (media_url ? "8px" : "0");
     body.dataset.role = "body";
-    div.appendChild(body);
 
-    // context menu hook for own text-only messages
+    if (m.deleted_for_all){
+      body.className = "deleted";
+      body.textContent = "Сообщение удалено";
+      div.appendChild(body);
+    } else {
+      const media_url = m.media_url || "";
+      const media_kind = m.media_kind || "";
+      const media_name = m.media_name || "";
+      const text = (m.text || "").trim();
+
+      if (media_url && media_kind === "image"){
+        const wrap = document.createElement("div");
+        wrap.className = "media";
+        const img = document.createElement("img");
+        img.src = media_url;
+        img.alt = media_name || "image";
+        img.loading = "lazy";
+        img.style.cursor = "pointer";
+        img.onclick = () => window.open(media_url, "_blank");
+        wrap.appendChild(img);
+        div.appendChild(wrap);
+      }
+
+      if (media_url && media_kind === "video"){
+        const wrap = document.createElement("div");
+        wrap.className = "media";
+        const video = document.createElement("video");
+        video.src = media_url;
+        video.controls = true;
+        video.preload = "metadata";
+        wrap.appendChild(video);
+        div.appendChild(wrap);
+      }
+
+      if (media_url && media_kind === "audio"){
+        const wrap = document.createElement("div");
+        wrap.className = "media";
+        wrap.style.padding = "10px";
+        const player = createVoicePlayer(media_url);
+        wrap.appendChild(player.root);
+        div.appendChild(wrap);
+      }
+
+      body.textContent = text;
+      body.style.marginTop = (media_url ? "8px" : "0");
+      div.appendChild(body);
+    }
+
+    // context menu (ПКМ / long press) for delete/edit
     div.addEventListener("contextmenu", (e)=>{
       e.preventDefault();
-      maybeOpenCtx(div, e.clientX, e.clientY);
+      openCtxForMsg(div, e.clientX, e.clientY);
     });
 
-    // mobile long-press
     let lpTimer = null;
     div.addEventListener("pointerdown", (e)=>{
       if (e.pointerType === "mouse") return;
-      lpTimer = setTimeout(()=> {
-        maybeOpenCtx(div, e.clientX, e.clientY);
-      }, 520);
+      lpTimer = setTimeout(()=> openCtxForMsg(div, e.clientX, e.clientY), 520);
     });
     div.addEventListener("pointerup", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
     div.addEventListener("pointercancel", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
 
     msgElById.set(m.id, div);
+    lastMsgId = Math.max(lastMsgId, Number(m.id||0));
 
     const stick = isNearBottom(box);
     box.appendChild(div);
-    if (stick) scrollToBottom(box);
+    if (stick) {
+      scrollToBottom(box);
+      maybeMarkRead();
+    }
     updateToBottom();
   }
 
-  function applyEdited(id, text, updated_at, is_edited){
+  function applyEdited(id, text, isEdited){
     const el = msgElById.get(id);
     if (!el) return;
-    el.dataset.text = text;
+    if (el.dataset.deletedForAll === "true") return;
 
     const body = el.querySelector('[data-role="body"]');
     if (body) body.textContent = text;
 
-    // add edited label
+    // edited label
     const metaRight = el.querySelector(".meta span");
-    if (metaRight){
-      // ensure edited label exists
-      if (is_edited && !metaRight.querySelector(".edited")){
-        const ed = document.createElement("span");
-        ed.className = "edited";
-        ed.textContent = "edited";
-        metaRight.appendChild(ed);
-      }
+    if (metaRight && isEdited && !metaRight.querySelector(".edited")){
+      const ed = document.createElement("span");
+      ed.className = "edited";
+      ed.textContent = "edited";
+      metaRight.appendChild(ed);
     }
+  }
+
+  function applyDeletedAll(id){
+    const el = msgElById.get(id);
+    if (!el) return;
+    el.dataset.deletedForAll = "true";
+    el.querySelectorAll(".media").forEach(n => n.remove());
+    const body = el.querySelector('[data-role="body"]');
+    if (body){
+      body.className = "deleted";
+      body.textContent = "Сообщение удалено";
+    }
+    // remove edited label if present (optional)
   }
 
   async function loadHistory(){
@@ -1441,6 +1628,8 @@
     const box = $("msgs");
     box.innerHTML = "";
     msgElById.clear();
+    lastMsgId = 0;
+
     addSystem(`📥 Loading: ${activeChatTitle}…`);
 
     try{
@@ -1449,6 +1638,8 @@
       for (const m of (data.messages || [])) addMsg(m);
       scrollToBottom(box);
       updateToBottom();
+      maybeMarkRead();
+      refreshChats(false).catch(()=>{});
     } catch (e) {
       addSystem("❌ " + e.message);
     }
@@ -1459,7 +1650,6 @@
     if (!text) return;
     if (!token) return openAuth("login");
     if (!activeChatId) return;
-
     $("text").value = "";
     try{
       await api("/api/messages", "POST", { chat_id: activeChatId, text });
@@ -1469,199 +1659,59 @@
   }
 
   // =========================
-  // Upload media
+  // Read marker (unread)
   // =========================
-  async function uploadMedia(file, captionOverride=null){
-    if (!token) return openAuth("login");
-    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
-
-    const caption = captionOverride !== null ? captionOverride : $("text").value.trim();
-
-    const fd = new FormData();
-    fd.append("chat_id", activeChatId);
-    fd.append("text", caption);
-    fd.append("file", file);
-
-    setStatus("⏫ Upload…");
-
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${token}` },
-      body: fd,
-    });
-
-    const raw = await res.text();
-    let data = {};
-    try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
-
-    if (!res.ok){
-      setStatus("");
-      throw new Error(data.detail || raw);
-    }
-
-    $("text").value = "";
-    $("file").value = "";
-    setStatus(`🟢 WS • ${activeChatTitle}`);
-  }
-
-  // =========================
-  // Hold-to-record voice with preview
-  // =========================
-  const recBtn = $("btnRecHold");
-  let rec = { active:false, mr:null, chunks:[], stream:null, startedAt:0 };
-
-  let preview = { blob:null, file:null, url:"" };
-
-  function openVoicePreview(){
-    $("voicePreviewOverlay").classList.add("open");
-    $("voicePreviewOverlay").setAttribute("aria-hidden","false");
-
-    const holder = $("voicePreviewPlayer");
-    holder.innerHTML = "";
-
-    // use objectURL for preview
-    const aurl = preview.url;
-    const player = createVoicePlayer(aurl);
-    holder.appendChild(player.root);
-
-    $("voicePreviewHint").textContent = "Прослушай и нажми “Отправить” или “Отмена”.";
-  }
-  function closeVoicePreview(){
-    $("voicePreviewOverlay").classList.remove("open");
-    $("voicePreviewOverlay").setAttribute("aria-hidden","true");
-    $("voicePreviewPlayer").innerHTML = "";
-  }
-  function clearPreview(){
-    try{ if (preview.url) URL.revokeObjectURL(preview.url); }catch(_){}
-    preview = { blob:null, file:null, url:"" };
-  }
-
-  async function startHoldRec(){
-    if (!token) return openAuth("login");
-    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
-    if (!navigator.mediaDevices?.getUserMedia) return addSystem("⚠️ Нет доступа к микрофону.");
-    if (!window.MediaRecorder) return addSystem("⚠️ MediaRecorder не поддерживается.");
-
+  let lastMarked = 0;
+  async function maybeMarkRead(){
+    if (!token || !activeChatId) return;
+    if (!lastMsgId) return;
+    if (!isNearBottom($("msgs"))) return;
+    if (lastMsgId <= lastMarked) return;
+    lastMarked = lastMsgId;
     try{
-      clearPreview();
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-
-      rec.active = true;
-      rec.mr = mr;
-      rec.stream = stream;
-      rec.chunks = [];
-      rec.startedAt = Date.now();
-
-      recBtn.classList.add("hold");
-      setStatus("🎙 Recording… (держи кнопку)");
-
-      mr.ondataavailable = (e) => { if (e.data?.size) rec.chunks.push(e.data); };
-
-      mr.onstop = () => {
-        try{
-          const blob = new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" });
-          const file = new File([blob], `voice_${Date.now()}.webm`, { type: blob.type });
-          preview.blob = blob;
-          preview.file = file;
-          preview.url = URL.createObjectURL(blob);
-
-          openVoicePreview();
-        }catch(e){
-          addSystem("❌ " + (e.message || e));
-        }finally{
-          try{ rec.stream?.getTracks().forEach(t => t.stop()); }catch(_){}
-          rec.stream = null;
-          rec.mr = null;
-          rec.chunks = [];
-        }
-      };
-
-      mr.start(200);
-    }catch(e){
-      addSystem("❌ " + (e.message || e));
-    }
-  }
-
-  function stopHoldRec(){
-    if (!rec.active) return;
-    rec.active = false;
-    recBtn.classList.remove("hold");
-    setStatus("—");
-    try{ rec.mr?.stop(); }catch(_){}
-  }
-
-  async function sendVoiceNow(){
-    if (!preview.file) return;
-    try{
-      setStatus("⏫ Upload voice…");
-      await uploadMedia(preview.file, ""); // caption empty by default
-      closeVoicePreview();
-      clearPreview();
-    }catch(e){
-      addSystem("❌ " + (e.message || e));
-    }finally{
-      setStatus(`🟢 WS • ${activeChatTitle}`);
-    }
+      await api(`/api/chats/${encodeURIComponent(activeChatId)}/read?last_id=${lastMsgId}`, "POST");
+      refreshChats(false).catch(()=>{});
+    }catch(_){}
   }
 
   // =========================
-  // Avatar upload
-  // =========================
-  async function uploadAvatar(){
-    const f = $("avatarFile").files && $("avatarFile").files[0];
-    if (!f) return $("profileHint").textContent = "Выбери файл.";
-    try{
-      $("profileHint").textContent = "Uploading…";
-      const fd = new FormData();
-      fd.append("file", f);
-
-      const res = await fetch("/api/avatar", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: fd
-      });
-
-      const raw = await res.text();
-      let data = {};
-      try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
-      if (!res.ok) throw new Error(data.detail || raw);
-
-      avatarUrl = data.avatar_url || "";
-      localStorage.setItem("avatar_url", avatarUrl || "");
-      setWhoami();
-      $("profileHint").textContent = "✅ Готово!";
-    }catch(e){
-      $("profileHint").textContent = "❌ " + (e.message || e);
-    }
-  }
-
-  // =========================
-  // Context menu for edit
+  // Context menu: edit/delete me/delete all
   // =========================
   const ctx = {
     el: $("ctxMenu"),
     edit: $("ctxEdit"),
+    delMe: $("ctxDeleteMe"),
+    delAll: $("ctxDeleteAll"),
     cancel: $("ctxCancel"),
-    currentMsgEl: null
+    msgEl: null,
+    msgId: 0,
+    sender: ""
   };
 
   function closeCtx(){
     ctx.el.classList.remove("open");
-    ctx.currentMsgEl = null;
+    ctx.msgEl = null;
+    ctx.msgId = 0;
+    ctx.sender = "";
   }
 
-  function maybeOpenCtx(msgEl, x, y){
+  function openCtxForMsg(msgEl, x, y){
+    const msgId = Number(msgEl.dataset.msgId || "0");
     const sender = msgEl.dataset.sender || "";
-    const mediaKind = msgEl.dataset.mediaKind || "";
-    if (sender !== me) return;          // only own
-    if (mediaKind && mediaKind !== "null" && mediaKind !== "") return; // text-only
+    const deleted = (msgEl.dataset.deletedForAll === "true");
+    if (!msgId) return;
 
-    ctx.currentMsgEl = msgEl;
+    ctx.msgEl = msgEl;
+    ctx.msgId = msgId;
+    ctx.sender = sender;
 
-    ctx.el.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
-    ctx.el.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
+    // buttons visibility
+    ctx.edit.style.display = (!deleted && sender === me) ? "" : "none";
+    ctx.delAll.style.display = (!deleted && sender === me) ? "" : "none";
+    ctx.delMe.style.display = "" ; // always possible
+
+    ctx.el.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
+    ctx.el.style.top = `${Math.min(y, window.innerHeight - 160)}px`;
     ctx.el.classList.add("open");
   }
 
@@ -1673,9 +1723,7 @@
     const body = msgEl.querySelector('[data-role="body"]');
     if (!body) return;
 
-    const old = msgEl.dataset.text || body.textContent || "";
-
-    // inline editor
+    const old = body.textContent || "";
     const input = document.createElement("input");
     input.value = old;
     input.style.marginTop = "6px";
@@ -1695,27 +1743,22 @@
     cancel.textContent = "Cancel";
     cancel.style.flex = "1";
 
-    const originalText = body.textContent;
+    const original = old;
     body.textContent = "";
     body.appendChild(input);
     body.appendChild(row);
     row.appendChild(save);
     row.appendChild(cancel);
 
-    const cleanup = () => {
-      body.innerHTML = "";
-      body.textContent = originalText;
-    };
+    const cleanup = () => { body.innerHTML = ""; body.textContent = original; };
 
     cancel.onclick = () => cleanup();
-
     save.onclick = async () => {
       const newText = input.value.trim();
-      if (!newText) return addSystem("⚠️ Текст не может быть пустым.");
+      if (newText.length > 2000) return addSystem("⚠️ Слишком длинно (макс 2000).");
       try{
         await api(`/api/messages/${msgId}`, "PATCH", { text: newText });
-        // WS event придёт и обновит, но обновим сразу для UX
-        applyEdited(msgId, newText, Math.floor(Date.now()/1000), true);
+        applyEdited(msgId, newText, true);
         body.innerHTML = "";
         body.textContent = newText;
       }catch(e){
@@ -1728,12 +1771,39 @@
       if (e.key === "Enter") save.click();
       if (e.key === "Escape") cancel.click();
     });
-
     setTimeout(()=> input.focus(), 10);
   }
 
+  async function deleteForMe(msgId){
+    try{
+      await api(`/api/messages/${msgId}?scope=me`, "DELETE");
+      const el = msgElById.get(msgId);
+      if (el) el.remove();
+      msgElById.delete(msgId);
+      refreshChats(false).catch(()=>{});
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
+  }
+
+  async function deleteForAll(msgId){
+    try{
+      await api(`/api/messages/${msgId}?scope=all`, "DELETE");
+      applyDeletedAll(msgId); // WS also will arrive
+      refreshChats(false).catch(()=>{});
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
+  }
+
+  ctx.edit.onclick = () => { if (ctx.msgEl) startInlineEdit(ctx.msgEl); };
+  ctx.delMe.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) deleteForMe(id); };
+  ctx.delAll.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) deleteForAll(id); };
+  ctx.cancel.onclick = () => closeCtx();
+  document.addEventListener("click", (e)=>{ if (!ctx.el.contains(e.target)) closeCtx(); });
+
   // =========================
-  // Session
+  // Session UI
   // =========================
   function setWhoami(){
     $("whoText").textContent = token ? `@${me}` : "Не авторизован";
@@ -1753,9 +1823,7 @@
 
   function logout(){
     stopAllExcept(null);
-    token = "";
-    me = "";
-    avatarUrl = "";
+    token = ""; me = ""; avatarUrl = "";
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("avatar_url");
@@ -1795,7 +1863,6 @@
 
   $("btnOpenCreateGroup").onclick = () => openSheet("group");
   $("btnOpenCreateDM").onclick = () => openSheet("dm");
-
   $("btnCloseSheet").onclick = () => closeSheet();
   $("btnSheetCancel").onclick = () => closeSheet();
   $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
@@ -1821,7 +1888,6 @@
   $("btnCancelVoiceNow").onclick = () => { closeVoicePreview(); clearPreview(); };
   $("btnSendVoiceNow").onclick = () => sendVoiceNow();
 
-  // attach media
   $("btnAttach").onclick = () => $("file").click();
   $("file").addEventListener("change", async () => {
     const f = $("file").files && $("file").files[0];
@@ -1830,29 +1896,14 @@
     catch(e){ addSystem("❌ " + (e.message || e)); }
   });
 
-  // send text
   $("btnSend").onclick = () => send();
   $("text").addEventListener("keydown", (e)=>{ if (e.key === "Enter") send(); });
+  $("text").addEventListener("input", ()=> onLocalTyping());
 
-  // hold-to-record handlers (pointer events)
-  recBtn.addEventListener("pointerdown", async (e)=>{
-    e.preventDefault();
-    if (rec.active) return;
-    await startHoldRec();
-  });
+  recBtn.addEventListener("pointerdown", async (e)=>{ e.preventDefault(); if (!rec.active) await startHoldRec(); });
   recBtn.addEventListener("pointerup", (e)=>{ e.preventDefault(); stopHoldRec(); });
   recBtn.addEventListener("pointercancel", (e)=>{ e.preventDefault(); stopHoldRec(); });
   recBtn.addEventListener("pointerleave", (e)=>{ if (rec.active) stopHoldRec(); });
-
-  // ctx menu
-  ctx.edit.onclick = async () => {
-    if (!ctx.currentMsgEl) return closeCtx();
-    await startInlineEdit(ctx.currentMsgEl);
-  };
-  ctx.cancel.onclick = () => closeCtx();
-  document.addEventListener("click", (e)=>{
-    if (!ctx.el.contains(e.target)) closeCtx();
-  });
 
   $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
@@ -1868,6 +1919,9 @@
       closeProfile();
     }
   });
+
+  // polling unread for other chats (since ws only for active chat)
+  setInterval(()=>{ if (token) refreshChats(false).catch(()=>{}); }, 8000);
 
   // =========================
   // Bootstrap
