@@ -552,22 +552,6 @@ def root():
     return {"ok": True, "hint": "frontend/index.html not found"}
 
 
-@app.get("/styles.css")
-def frontend_styles():
-    path = os.path.join(FRONTEND_DIR, "styles.css")
-    if os.path.isfile(path):
-        return FileResponse(path, media_type="text/css")
-    raise HTTPException(status_code=404, detail="styles.css not found")
-
-
-@app.get("/app.js")
-def frontend_app_js():
-    path = os.path.join(FRONTEND_DIR, "app.js")
-    if os.path.isfile(path):
-        return FileResponse(path, media_type="application/javascript")
-    raise HTTPException(status_code=404, detail="app.js not found")
-
-
 # =========================
 # Schemas
 # =========================
