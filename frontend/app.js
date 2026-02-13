@@ -144,6 +144,23 @@
     }catch{ return "—"; }
   }
 
+  function createMessageAvatar(sender, isMine){
+    const initial = String(sender || "?").trim().charAt(0).toUpperCase() || "?";
+    const mine = isMine && avatarUrl;
+    if (mine){
+      const img = document.createElement("img");
+      img.className = "msg-avatar";
+      img.src = avatarUrl;
+      img.alt = sender || "me";
+      return img;
+    }
+    const badge = document.createElement("div");
+    badge.className = "msg-avatar";
+    badge.textContent = initial;
+    badge.title = sender || "user";
+    return badge;
+  }
+
   async function tryRefresh(){
     if (!refreshToken) return false;
     const res = await fetch("/api/refresh", {
@@ -999,6 +1016,9 @@
   // =========================
   function addMsg(m){
     const box = $("msgs");
+    const row = document.createElement("div");
+    row.className = "msg-row" + ((m.sender === me) ? " me" : "");
+
     const div = document.createElement("div");
     div.className = "msg" + ((m.sender === me) ? " me" : "");
     div.dataset.msgId = String(m.id || "");
@@ -1122,8 +1142,17 @@
     msgElById.set(m.id, div);
     lastMsgId = Math.max(lastMsgId, Number(m.id||0));
 
+    const avatarNode = createMessageAvatar(m.sender, m.sender === me);
+    if (m.sender === me){
+      row.appendChild(div);
+      row.appendChild(avatarNode);
+    } else {
+      row.appendChild(avatarNode);
+      row.appendChild(div);
+    }
+
     const stick = isNearBottom(box);
-    box.appendChild(div);
+    box.appendChild(row);
     if (stick) {
       scrollToBottom(box);
       maybeMarkRead();
@@ -1389,7 +1418,11 @@
     try{
       await api(`/api/messages/${msgId}?scope=me`, "DELETE");
       const el = msgElById.get(msgId);
-      if (el) el.remove();
+      if (el) {
+        const row = el.closest(".msg-row");
+        if (row) row.remove();
+        else el.remove();
+      }
       msgElById.delete(msgId);
       refreshChats(false).catch(()=>{});
     }catch(e){
