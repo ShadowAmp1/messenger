@@ -262,6 +262,28 @@ def init_db() -> None:
 
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS user_avatar_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    avatar_url TEXT NOT NULL,
+                    created_at BIGINT NOT NULL
+                );
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS contacts (
+                    owner_username TEXT NOT NULL,
+                    contact_username TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    PRIMARY KEY(owner_username, contact_username)
+                );
+                """
+            )
+
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS stories (
                     id BIGSERIAL PRIMARY KEY,
                     username TEXT NOT NULL,
@@ -625,6 +647,10 @@ class ProfileUpdateIn(BaseModel):
     bio: str = ""
 
 
+class ContactCreateIn(BaseModel):
+    username: str
+
+
 # =========================
 # Auth API
 # =========================
@@ -832,8 +858,8 @@ async def upload_avatar(
             data,
             folder="messenger/avatars",
             resource_type="image",
-            overwrite=True,
-            public_id=f"avatar_{username}",
+            overwrite=False,
+            public_id=f"avatar_{username}_{now_ts()}",
         )
         url = up.get("secure_url") or up.get("url")
     except Exception as e:
@@ -841,10 +867,95 @@ async def upload_avatar(
 
     with db() as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT avatar_url FROM users WHERE username=%s", (username,))
+            prev = cur.fetchone()
+            prev_avatar = (prev["avatar_url"] if prev else None)
+            if prev_avatar:
+                cur.execute(
+                    "INSERT INTO user_avatar_history(username, avatar_url, created_at) VALUES(%s,%s,%s)",
+                    (username, prev_avatar, now_ts()),
+                )
             cur.execute("UPDATE users SET avatar_url=%s WHERE username=%s", (url, username))
         conn.commit()
 
     return {"ok": True, "avatar_url": url}
+
+
+@app.get("/api/avatar/history")
+def list_avatar_history(username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT avatar_url, created_at
+                FROM user_avatar_history
+                WHERE username=%s
+                ORDER BY created_at DESC
+                LIMIT 30
+                """,
+                (username,),
+            )
+            rows = cur.fetchall()
+    return {"items": rows}
+
+
+@app.get("/api/contacts")
+def list_contacts(username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.contact_username AS username,
+                       COALESCE(NULLIF(u.display_name, ''), u.username) AS display_name,
+                       u.avatar_url
+                FROM contacts c
+                JOIN users u ON u.username = c.contact_username
+                WHERE c.owner_username=%s
+                ORDER BY c.created_at DESC
+                """,
+                (username,),
+            )
+            rows = cur.fetchall()
+    for row in rows:
+        row["online"] = row["username"] in USER_SOCKETS
+    return {"contacts": rows}
+
+
+@app.post("/api/contacts")
+def add_contact(data: ContactCreateIn, username: str = Depends(get_current_username)):
+    contact = (data.username or "").strip()
+    if not USERNAME_RE.match(contact):
+        raise HTTPException(status_code=400, detail="Invalid username")
+    if contact == username:
+        raise HTTPException(status_code=400, detail="Cannot add yourself")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (contact,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="User not found")
+            cur.execute(
+                """
+                INSERT INTO contacts(owner_username, contact_username, created_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (owner_username, contact_username) DO NOTHING
+                """,
+                (username, contact, now_ts()),
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/contacts/{contact_username}")
+def remove_contact(contact_username: str, username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM contacts WHERE owner_username=%s AND contact_username=%s",
+                (username, contact_username),
+            )
+        conn.commit()
+    return {"ok": True}
 
 
 # =========================
@@ -1252,6 +1363,88 @@ async def delete_chat(chat_id: str, username: str = Depends(get_current_username
     # notify remaining member(s) to refresh
     await broadcast_chat(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
     return {"ok": True}
+
+
+@app.get("/api/chats/{chat_id}/overview")
+def chat_overview(
+    chat_id: str,
+    q: str = Query(default="", max_length=80),
+    username: str = Depends(get_current_username),
+):
+    query = (q or "").strip()
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.id, m.sender, m.text, m.created_at
+                FROM messages m
+                WHERE m.chat_id=%s
+                  AND m.deleted_for_all=FALSE
+                  AND (%s='' OR LOWER(m.text) LIKE LOWER(%s))
+                ORDER BY m.id DESC
+                LIMIT 40
+                """,
+                (chat_id, query, f"%{query}%"),
+            )
+            found_messages = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT media_kind, media_url, media_name, sender, created_at
+                FROM messages
+                WHERE chat_id=%s
+                  AND deleted_for_all=FALSE
+                  AND media_url IS NOT NULL
+                ORDER BY id DESC
+                LIMIT 80
+                """,
+                (chat_id,),
+            )
+            media = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, sender, text, created_at
+                FROM messages
+                WHERE chat_id=%s
+                  AND deleted_for_all=FALSE
+                  AND (
+                    text ~* '(https?://[^\s]+)'
+                    OR text LIKE 'www.%'
+                  )
+                ORDER BY id DESC
+                LIMIT 80
+                """,
+                (chat_id,),
+            )
+            links = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT m.username,
+                       m.role,
+                       COALESCE(NULLIF(u.display_name, ''), u.username) AS display_name,
+                       u.avatar_url
+                FROM chat_members m
+                JOIN users u ON u.username = m.username
+                WHERE m.chat_id=%s
+                ORDER BY m.joined_at ASC
+                """,
+                (chat_id,),
+            )
+            members = cur.fetchall()
+
+    for m in members:
+        m["online"] = m["username"] in USER_SOCKETS
+
+    return {
+        "messages": found_messages,
+        "media": media,
+        "links": links,
+        "members": members,
+    }
 
 
 # =========================
