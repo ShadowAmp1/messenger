@@ -50,6 +50,7 @@
 
             <div class="row row-gap-8">
               <button class="btn flex-1" id="btnLoadHistory" type="button">История</button>
+              <button class="btn flex-1" id="btnContacts" type="button">Контакты</button>
               <button class="btn flex-1" id="btnInvite" type="button">Пригласить</button>
               <button class="btn flex-1" id="btnMute" type="button">Тихий режим</button>
             </div>
@@ -65,6 +66,12 @@
         </aside>
 
         <div class="chat">
+          <button class="chat-head" id="btnChatInfo" type="button">
+            <div>
+              <div id="chatHeadTitle">Выберите чат</div>
+              <div class="small" id="chatHeadSub">Нажмите для поиска и медиа</div>
+            </div>
+          </button>
           <div id="storiesBar" class="stories-bar"></div>
           <div id="pinsBar" class="small pins-bar is-hidden"></div>
           <div class="msgs" id="msgs"></div>
@@ -153,6 +160,44 @@
         <button id="btnUploadStory" class="btn" type="button">Выложить историю</button>
         <div id="myStories" class="small"></div>
         <div class="small" id="profileHint">—</div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- CONTACTS -->
+  <div class="sheet-overlay" id="contactsOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b>Контакты</b>
+        <button class="xbtn" id="btnCloseContacts" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <div class="row">
+          <input id="contactUsername" placeholder="username" />
+          <button class="btn" id="btnAddContact" type="button">Добавить</button>
+        </div>
+        <div id="contactsList" class="chatlist"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT INFO -->
+  <div class="sheet-overlay" id="chatInfoOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b id="chatInfoTitle">Инфо чата</b>
+        <button class="xbtn" id="btnCloseChatInfo" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <input id="chatInfoSearch" placeholder="Поиск по ключевому слову" />
+        <button id="btnChatInfoSearch" class="btn" type="button">Поиск</button>
+        <div id="chatInfoResults" class="small"></div>
+        <div class="sep"></div>
+        <div class="small" id="chatInfoMedia"></div>
+        <div class="small" id="chatInfoLinks"></div>
+        <div class="small" id="chatInfoMembers"></div>
       </div>
     </div>
   </div>
