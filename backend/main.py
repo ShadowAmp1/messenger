@@ -7,7 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, List
 
 import psycopg
 from psycopg.rows import dict_row
@@ -34,9 +34,7 @@ from pydantic import BaseModel
 
 
 # =========================
-# Paths (MONOREPO)
-# backend/main.py
-# frontend/index.html
+# Paths
 # =========================
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
@@ -215,6 +213,12 @@ def get_chat(conn, chat_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
+def list_chat_members(conn, chat_id: str) -> List[str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT username FROM chat_members WHERE chat_id=%s", (chat_id,))
+        return [r["username"] for r in cur.fetchall()]
+
+
 def ensure_general_for(username: str) -> None:
     with db() as conn:
         with conn.cursor() as cur:
@@ -234,7 +238,6 @@ def ensure_general_for(username: str) -> None:
                 ("general", username, int(time.time())),
             )
 
-            # init read row
             cur.execute(
                 """
                 INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
@@ -269,11 +272,13 @@ def verify_password(password: str, stored: str) -> bool:
 # =========================
 def b64url(data: bytes) -> str:
     import base64
+
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def b64urldecode(data: str) -> bytes:
     import base64
+
     pad = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode((data + pad).encode("ascii"))
 
@@ -351,7 +356,7 @@ def media_kind_from_mime(mime: str) -> str:
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # потом лучше ограничить доменом
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -386,6 +391,96 @@ class MsgIn(BaseModel):
 
 class MsgEditIn(BaseModel):
     text: str
+
+
+# =========================
+# GLOBAL USER WEBSOCKET
+# =========================
+# username -> set(ws)
+user_connections: Dict[str, Set[WebSocket]] = {}
+
+
+def add_user_conn(username: str, ws: WebSocket) -> None:
+    user_connections.setdefault(username, set()).add(ws)
+
+
+def remove_user_conn(username: str, ws: WebSocket) -> None:
+    if username in user_connections:
+        user_connections[username].discard(ws)
+        if not user_connections[username]:
+            user_connections.pop(username, None)
+
+
+async def broadcast_to_users(usernames: List[str], event: dict) -> None:
+    dead: List[tuple[str, WebSocket]] = []
+    payload = json.dumps(event)
+    for u in usernames:
+        for ws in list(user_connections.get(u, set())):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                dead.append((u, ws))
+    for u, ws in dead:
+        remove_user_conn(u, ws)
+
+
+async def broadcast_to_chat(chat_id: str, event: dict) -> None:
+    with db() as conn:
+        members = list_chat_members(conn, chat_id)
+    if members:
+        await broadcast_to_users(members, event)
+
+
+@app.websocket("/ws/user")
+async def ws_user(ws: WebSocket):
+    token = (ws.query_params.get("token") or "").strip()
+    if not token:
+        await ws.close(code=4401)
+        return
+
+    try:
+        username = jwt_verify(token)["sub"]
+    except HTTPException:
+        await ws.close(code=4401)
+        return
+
+    await ws.accept()
+    add_user_conn(username, ws)
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+
+            # typing event from user
+            if isinstance(data, dict) and data.get("type") == "typing":
+                chat_id = (data.get("chat_id") or "").strip()
+                is_typing = bool(data.get("is_typing", False))
+                if not chat_id:
+                    continue
+
+                # security: verify membership
+                with db() as conn:
+                    if not is_member(conn, chat_id, username):
+                        continue
+
+                await broadcast_to_chat(
+                    chat_id,
+                    {
+                        "type": "typing",
+                        "chat_id": chat_id,
+                        "username": username,
+                        "is_typing": is_typing,
+                    },
+                )
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        remove_user_conn(username, ws)
 
 
 # =========================
@@ -512,7 +607,6 @@ def list_chats(username: str = Depends(get_current_username)):
             )
             rows = cur.fetchall()
 
-            # compute unread per chat
             out = []
             for c in rows:
                 chat_id = c["id"]
@@ -647,6 +741,9 @@ async def delete_chat(chat_id: str, username: str = Depends(get_current_username
         if chat["type"] == "group" and chat["created_by"] != username:
             raise HTTPException(status_code=403, detail="Удалять групповой чат может только создатель.")
 
+        # IMPORTANT: get members BEFORE deleting tables
+        members = list_chat_members(conn, chat_id)
+
         with conn.cursor() as cur:
             cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
             cur.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
@@ -655,12 +752,13 @@ async def delete_chat(chat_id: str, username: str = Depends(get_current_username
             cur.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
         conn.commit()
 
-    await broadcast(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
+    # broadcast to members (chat no longer exists)
+    await broadcast_to_users(members, {"type": "chat_deleted", "chat_id": chat_id})
     return {"ok": True}
 
 
 # =========================
-# Read marker (unread)
+# Read marker
 # =========================
 @app.post("/api/chats/{chat_id}/read")
 def mark_read(chat_id: str, last_id: int = Query(..., ge=0), username: str = Depends(get_current_username)):
@@ -759,7 +857,7 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
         "media_mime": None,
         "media_name": None,
     }
-    await broadcast(chat_id, event)
+    await broadcast_to_chat(chat_id, event)
     return {"message": event}
 
 
@@ -810,7 +908,7 @@ async def edit_message(message_id: int, data: MsgEditIn, username: str = Depends
         "updated_at": ts,
         "is_edited": True,
     }
-    await broadcast(chat_id, event)
+    await broadcast_to_chat(chat_id, event)
     return {"ok": True, "message": event}
 
 
@@ -874,7 +972,7 @@ async def delete_message(
         "deleted_at": now,
         "deleted_by": username,
     }
-    await broadcast(chat_id, event)
+    await broadcast_to_chat(chat_id, event)
     return {"ok": True, "scope": "all"}
 
 
@@ -965,84 +1063,12 @@ async def upload(
         "media_name": (file.filename or "")[:200],
     }
 
-    await broadcast(chat_id, event)
+    await broadcast_to_chat(chat_id, event)
     return {"message": event}
 
 
 # =========================
-# WebSocket connections
-# =========================
-connections: Dict[str, Set[WebSocket]] = {}  # chat_id -> set(ws)
-
-
-def add_conn(chat_id: str, ws: WebSocket) -> None:
-    connections.setdefault(chat_id, set()).add(ws)
-
-
-def remove_conn(chat_id: str, ws: WebSocket) -> None:
-    if chat_id in connections:
-        connections[chat_id].discard(ws)
-        if not connections[chat_id]:
-            connections.pop(chat_id, None)
-
-
-async def broadcast(chat_id: str, event: dict) -> None:
-    conns = list(connections.get(chat_id, set()))
-    dead: list[WebSocket] = []
-    for c in conns:
-        try:
-            await c.send_text(json.dumps(event))
-        except Exception:
-            dead.append(c)
-    for d in dead:
-        remove_conn(chat_id, d)
-
-
-@app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket):
-    token = (ws.query_params.get("token") or "").strip()
-    chat_id = (ws.query_params.get("chat_id") or "").strip()
-
-    if not token or not chat_id:
-        await ws.close(code=4401)
-        return
-
-    try:
-        username = jwt_verify(token)["sub"]
-    except HTTPException:
-        await ws.close(code=4401)
-        return
-
-    with db() as conn:
-        if not is_member(conn, chat_id, username):
-            await ws.close(code=4403)
-            return
-
-    await ws.accept()
-    add_conn(chat_id, ws)
-
-    try:
-        while True:
-            raw = await ws.receive_text()
-            # client can send typing events
-            try:
-                data = json.loads(raw)
-            except Exception:
-                continue
-
-            if isinstance(data, dict) and data.get("type") == "typing":
-                is_typing = bool(data.get("is_typing", False))
-                ev = {"type": "typing", "chat_id": chat_id, "username": username, "is_typing": is_typing}
-                await broadcast(chat_id, ev)
-
-    except WebSocketDisconnect:
-        pass
-    finally:
-        remove_conn(chat_id, ws)
-
-
-# =========================
-# Frontend serve — MUST BE LAST
+# Frontend serve — LAST
 # =========================
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
