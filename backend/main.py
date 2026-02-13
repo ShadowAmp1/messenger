@@ -110,10 +110,12 @@ def init_db() -> None:
                     id BIGSERIAL PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
                     pass_hash TEXT NOT NULL,
+                    avatar_url TEXT,
                     created_at BIGINT NOT NULL
                 );
                 """
             )
+
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chats (
@@ -125,6 +127,7 @@ def init_db() -> None:
                 );
                 """
             )
+
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_members (
@@ -135,6 +138,7 @@ def init_db() -> None:
                 );
                 """
             )
+
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -143,6 +147,8 @@ def init_db() -> None:
                     sender TEXT NOT NULL,
                     text TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
+                    updated_at BIGINT,
+                    is_edited BOOLEAN NOT NULL DEFAULT FALSE,
                     media_kind TEXT,
                     media_url TEXT,
                     media_mime TEXT,
@@ -150,6 +156,12 @@ def init_db() -> None:
                 );
                 """
             )
+
+            # Backward-compatible migrations (if old tables exist)
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at BIGINT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;")
+
         conn.commit()
 
 
@@ -160,6 +172,12 @@ def is_member(conn, chat_id: str, username: str) -> bool:
             (chat_id, username),
         )
         return cur.fetchone() is not None
+
+
+def get_chat(conn, chat_id: str) -> Optional[dict]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, type, title, created_by, created_at FROM chats WHERE id=%s", (chat_id,))
+        return cur.fetchone()
 
 
 def ensure_general_for(username: str) -> None:
@@ -286,7 +304,6 @@ def media_kind_from_mime(mime: str) -> str:
 # App
 # =========================
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -315,6 +332,9 @@ class DMCreateIn(BaseModel):
 
 class MsgIn(BaseModel):
     chat_id: str
+    text: str
+
+class MsgEditIn(BaseModel):
     text: str
 
 
@@ -370,7 +390,52 @@ def login(data: AuthIn):
 
 @app.get("/api/me")
 def me(username: str = Depends(get_current_username)):
-    return {"username": username}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT username, avatar_url FROM users WHERE username=%s", (username,))
+            row = cur.fetchone()
+    return {"username": username, "avatar_url": (row or {}).get("avatar_url")}
+
+
+# =========================
+# Avatar upload
+# =========================
+@app.post("/api/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    username: str = Depends(get_current_username),
+):
+    mime = (file.content_type or "").lower().strip()
+    if mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Аватар должен быть изображением.")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Пустой файл.")
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Аватар слишком большой (лимит 5MB).")
+
+    public_id = f"mini_messenger/avatars/{username}"
+    try:
+        uploaded = cloudinary.uploader.upload(
+            data,
+            resource_type="image",
+            public_id=public_id,
+            overwrite=True,
+            unique_filename=False,
+        )
+        avatar_url = uploaded.get("secure_url") or uploaded.get("url")
+        if not avatar_url:
+            raise RuntimeError("Cloudinary returned no url")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET avatar_url=%s WHERE username=%s", (avatar_url, username))
+        conn.commit()
+
+    return {"avatar_url": avatar_url}
 
 
 # =========================
@@ -382,7 +447,7 @@ def list_chats(username: str = Depends(get_current_username)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT c.id, c.type, c.title, c.created_at
+                SELECT c.id, c.type, c.title, c.created_at, c.created_by
                 FROM chats c
                 JOIN chat_members m ON m.chat_id = c.id
                 WHERE m.username=%s
@@ -419,7 +484,7 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
             )
         conn.commit()
 
-    return {"chat": {"id": chat_id, "type": "group", "title": title, "created_at": now}}
+    return {"chat": {"id": chat_id, "type": "group", "title": title, "created_at": now, "created_by": username}}
 
 
 @app.post("/api/chats/dm")
@@ -439,17 +504,19 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
             a, b = sorted([username, other])
             dm_key = f"dm:{a}|{b}"
 
-            cur.execute("SELECT id, created_at FROM chats WHERE type='dm' AND title=%s", (dm_key,))
+            cur.execute("SELECT id, created_at, created_by FROM chats WHERE type='dm' AND title=%s", (dm_key,))
             row = cur.fetchone()
             if row:
                 chat_id = row["id"]
                 created_at = row["created_at"]
+                created_by = row["created_by"]
             else:
                 chat_id = make_id("d_")
                 created_at = int(time.time())
+                created_by = username
                 cur.execute(
                     "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    (chat_id, "dm", dm_key, username, created_at),
+                    (chat_id, "dm", dm_key, created_by, created_at),
                 )
 
             now = int(time.time())
@@ -472,7 +539,35 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
 
         conn.commit()
 
-    return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at}}
+    return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at, "created_by": created_by}}
+
+
+@app.delete("/api/chats/{chat_id}")
+async def delete_chat(chat_id: str, username: str = Depends(get_current_username)):
+    with db() as conn:
+        chat = get_chat(conn, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Чат не найден.")
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+        # Правило удаления:
+        # - group: только создатель (created_by) (general удалять нельзя)
+        # - dm: любой участник (удаляет чат полностью)
+        if chat_id == "general":
+            raise HTTPException(status_code=400, detail="general нельзя удалить.")
+        if chat["type"] == "group" and chat["created_by"] != username:
+            raise HTTPException(status_code=403, detail="Удалять групповой чат может только создатель.")
+
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
+            cur.execute("DELETE FROM chat_members WHERE chat_id=%s", (chat_id,))
+            cur.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
+        conn.commit()
+
+    # уведомим всех (кто был онлайн)
+    await broadcast(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
+    return {"ok": True}
 
 
 # =========================
@@ -487,7 +582,8 @@ def list_messages(chat_id: str, username: str = Depends(get_current_username)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name
+                SELECT id, chat_id, sender, text, created_at, updated_at, is_edited,
+                       media_kind, media_url, media_mime, media_name
                 FROM messages
                 WHERE chat_id=%s
                 ORDER BY id DESC
@@ -516,8 +612,9 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
-                VALUES(%s,%s,%s,%s,NULL,NULL,NULL,NULL)
+                INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
+                                     media_kind, media_url, media_mime, media_name)
+                VALUES(%s,%s,%s,%s,NULL,FALSE,NULL,NULL,NULL,NULL)
                 RETURNING id
                 """,
                 (chat_id, username, text, ts),
@@ -532,6 +629,8 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
         "sender": username,
         "text": text,
         "created_at": ts,
+        "updated_at": None,
+        "is_edited": False,
         "media_kind": None,
         "media_url": None,
         "media_mime": None,
@@ -539,6 +638,59 @@ async def create_text_message(data: MsgIn, username: str = Depends(get_current_u
     }
     await broadcast(chat_id, event)
     return {"message": event}
+
+
+@app.patch("/api/messages/{message_id}")
+async def edit_message(message_id: int, data: MsgEditIn, username: str = Depends(get_current_username)):
+    new_text = (data.text or "").strip()
+    if not new_text or len(new_text) > 2000:
+        raise HTTPException(status_code=400, detail="Текст: 1-2000 символов.")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, chat_id, sender, media_kind
+                FROM messages
+                WHERE id=%s
+                """,
+                (message_id,),
+            )
+            row = cur.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail="Сообщение не найдено.")
+            if row["sender"] != username:
+                raise HTTPException(status_code=403, detail="Можно редактировать только свои сообщения.")
+            if row["media_kind"] is not None:
+                # чтобы было проще: редактируем только текстовые
+                raise HTTPException(status_code=400, detail="Редактирование медиа-сообщений пока выключено.")
+
+            chat_id = row["chat_id"]
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+
+            ts = int(time.time())
+            cur.execute(
+                """
+                UPDATE messages
+                SET text=%s, updated_at=%s, is_edited=TRUE
+                WHERE id=%s
+                """,
+                (new_text, ts, message_id),
+            )
+        conn.commit()
+
+    event = {
+        "type": "message_edited",
+        "id": message_id,
+        "chat_id": chat_id,
+        "text": new_text,
+        "updated_at": ts,
+        "is_edited": True,
+    }
+    await broadcast(chat_id, event)
+    return {"ok": True, "message": event}
 
 
 @app.post("/api/upload")
@@ -590,8 +742,9 @@ async def upload(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
+                                     media_kind, media_url, media_mime, media_name)
+                VALUES (%s,%s,%s,%s,NULL,FALSE,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (
@@ -615,6 +768,8 @@ async def upload(
         "sender": username,
         "text": text,
         "created_at": ts,
+        "updated_at": None,
+        "is_edited": False,
         "media_kind": kind,
         "media_url": media_url,
         "media_mime": mime,
@@ -691,8 +846,4 @@ if os.path.isdir(FRONTEND_DIR):
 else:
     @app.get("/")
     def _no_frontend():
-        return {
-            "error": "frontend folder not found",
-            "expected_path": FRONTEND_DIR,
-            "hint": "Repo should contain: frontend/index.html рядом с backend/",
-        }
+        return {"error": "frontend folder not found", "expected_path": FRONTEND_DIR}

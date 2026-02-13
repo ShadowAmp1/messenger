@@ -13,11 +13,13 @@
       --muted:rgba(230,238,252,.85);
       --btn:#1b2742;
       --shadow: 0 18px 50px rgba(0,0,0,.5);
+      --danger: rgba(255,91,91,.95);
+      --dangerBg: rgba(255,91,91,.10);
+      --ok: rgba(120,160,255,.95);
+      --okBg: rgba(120,160,255,.12);
     }
-
     *{ box-sizing:border-box; }
     html, body { height: 100%; }
-
     body{
       margin:0;
       font-family: system-ui, Arial;
@@ -25,19 +27,7 @@
       color:#e6eefc;
       overflow: hidden;
     }
-
-    .wrap{
-      height: 100dvh;
-      padding: 16px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-    }
-    @supports (-webkit-touch-callout: none) {
-      html{ height: -webkit-fill-available; }
-      .wrap{ height: -webkit-fill-available; }
-    }
-
+    .wrap{ height: 100dvh; padding: 16px; display:flex; align-items:center; justify-content:center; }
     .card{
       width: min(1100px, 100%);
       height: calc(100dvh - 32px);
@@ -49,7 +39,6 @@
       flex-direction: column;
       min-height: 0;
     }
-
     .top{
       flex: 0 0 auto;
       display:flex;
@@ -74,10 +63,12 @@
       max-width: 46vw;
       overflow:hidden;
       text-overflow: ellipsis;
+      display:flex;
+      align-items:center;
+      gap:8px;
     }
     .small{ font-size:12px; opacity:.85; color: var(--muted); }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-
     .btn{
       padding: 10px 14px;
       border-radius: 10px;
@@ -92,6 +83,17 @@
     .btn:active{ transform: translateY(1px); }
     .btn[disabled]{ opacity:.6; cursor:not-allowed; transform:none; }
 
+    .avatar{
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      object-fit: cover;
+      display:none;
+    }
+    .avatar.show{ display:inline-block; }
+
     .grid{
       flex: 1 1 auto;
       min-height: 0;
@@ -99,7 +101,6 @@
       grid-template-columns: 320px 1fr;
     }
 
-    /* Sidebar */
     .sidebar{
       border-right: 1px solid var(--border);
       background: rgba(0,0,0,.08);
@@ -144,7 +145,6 @@
       border-color: rgba(140,170,255,.55);
       box-shadow: 0 0 0 3px rgba(120,160,255,.10);
     }
-
     .sep{ height:1px; background: var(--border); opacity:.7; margin: 4px 0; }
 
     .chatlist{
@@ -166,6 +166,7 @@
       gap: 10px;
       cursor:pointer;
       user-select:none;
+      position: relative;
     }
     .chatitem:hover{ filter:brightness(1.08); }
     .chatitem.active{
@@ -184,8 +185,22 @@
       opacity: .9;
       flex: 0 0 auto;
     }
+    .trash{
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border:1px solid var(--border);
+      background: rgba(255,91,91,.10);
+      color: #ffdede;
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+      flex: 0 0 auto;
+    }
+    .trash:hover{ filter:brightness(1.08); }
+    .trash:active{ transform: translateY(1px); }
 
-    /* Chat */
     .chat{
       min-height: 0;
       display:flex;
@@ -210,6 +225,7 @@
       display:flex;
       flex-direction: column;
       gap: 6px;
+      position: relative;
     }
     .msg.me{
       align-self:flex-end;
@@ -226,7 +242,11 @@
       opacity: .9;
     }
     .meta b{ color:#e6eefc; opacity: .95; }
-
+    .edited{
+      font-size: 11px;
+      opacity: .75;
+      margin-left: 8px;
+    }
     .media{
       margin-top: 6px;
       border-radius: 12px;
@@ -291,17 +311,10 @@
       height: 44px;
       border-radius: 12px;
     }
-    .rec-timer{
-      display:none;
-      font-size:12px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,91,91,.35);
-      background: rgba(255,91,91,.10);
-      color:#ffdede;
-      user-select:none;
+    .hold{
+      border-color: rgba(255,91,91,.35) !important;
+      background: rgba(255,91,91,.12) !important;
     }
-    .rec-timer.show{ display:inline-flex; align-items:center; gap:6px; }
 
     .statusbar{
       border-top: 1px solid var(--border);
@@ -321,7 +334,6 @@
       z-index: 20;
     }
     .drawer-backdrop.open{ display:block; }
-
     @media (max-width: 900px){
       .grid{ grid-template-columns: 1fr; }
       .sidebar{
@@ -335,8 +347,8 @@
       .sidebar.open{ transform: translateX(0); }
     }
 
-    /* Auth Modal */
-    .modal-overlay{
+    /* Modal/sheet base */
+    .overlay{
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,.55);
@@ -346,9 +358,9 @@
       padding: 14px;
       z-index: 60;
     }
-    .modal-overlay.open{ display:flex; }
+    .overlay.open{ display:flex; }
     .modal{
-      width: min(420px, 100%);
+      width: min(440px, 100%);
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
@@ -417,9 +429,8 @@
       user-select:none;
       font-weight: 700;
     }
-    .btnrow button[disabled]{ opacity:.6; cursor:not-allowed; }
 
-    /* ✅ Create sheet */
+    /* Create sheet */
     .sheet-overlay{
       position: fixed;
       inset: 0;
@@ -453,8 +464,12 @@
       flex-direction: column;
       gap: 10px;
     }
+    .sheet-actions{
+      display:flex;
+      gap:10px;
+    }
     .sheet-actions button{
-      width: 100%;
+      flex: 1 1 auto;
       height: 44px;
       border-radius: 12px;
       border:1px solid var(--border);
@@ -464,8 +479,38 @@
       user-select:none;
       font-weight: 700;
     }
+    .danger{
+      border-color: rgba(255,91,91,.35) !important;
+      background: rgba(255,91,91,.10) !important;
+      color:#ffdede !important;
+    }
 
-    /* ✅ Voice waveform */
+    /* Context menu */
+    .ctx{
+      position: fixed;
+      z-index: 80;
+      display:none;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      min-width: 180px;
+      overflow:hidden;
+    }
+    .ctx.open{ display:block; }
+    .ctx button{
+      width:100%;
+      padding: 10px 12px;
+      background: transparent;
+      border:0;
+      color:#e6eefc;
+      text-align:left;
+      cursor:pointer;
+    }
+    .ctx button:hover{ background: rgba(255,255,255,.05); }
+    .ctx button.danger{ color:#ffdede; }
+
+    /* Voice waveform */
     .voice{
       display:flex;
       align-items:center;
@@ -484,7 +529,6 @@
       user-select:none;
       flex: 0 0 auto;
     }
-    .voice .play:active{ transform: translateY(1px); }
     .voice .wave{
       flex: 1 1 auto;
       min-width: 160px;
@@ -515,7 +559,7 @@
 <body>
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
-  <div class="wrap" id="appRoot">
+  <div class="wrap">
     <div class="card">
       <div class="top">
         <div class="top-left">
@@ -526,7 +570,11 @@
           </div>
         </div>
         <div class="row">
-          <div class="pill" id="whoami">Не авторизован</div>
+          <div class="pill" id="whoami">
+            <img id="topAvatar" class="avatar" alt="avatar"/>
+            <span id="whoText">Не авторизован</span>
+          </div>
+          <button class="btn" id="btnProfile" type="button" style="display:none;">Профиль</button>
           <button class="btn" id="btnOpenAuth" type="button">Войти</button>
           <button class="btn" id="btnLogout" type="button" style="display:none;">Выйти</button>
         </div>
@@ -555,12 +603,13 @@
             <div class="chatlist" id="chatlist"></div>
 
             <div class="small" style="margin-top:auto;">
-              Советы: ➕ групповой чат, 💬 DM, ⟳ обновить. 📎 — фото/видео/аудио. 🎙️ — голосовое.
+              Советы: ➕ групповой чат, 💬 DM, ⟳ обновить. 🗑 удалить чат. ПКМ по своему сообщению → Edit.
+              🎙 держи кнопку — запись; отпусти — предпрослушка.
             </div>
           </div>
         </div>
 
-        <div class="chat" id="chatArea">
+        <div class="chat">
           <div class="msgs" id="msgs"></div>
           <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
 
@@ -568,8 +617,7 @@
             <button id="btnAttach" type="button" title="Фото/Видео/Аудио">📎</button>
             <input id="file" type="file" accept="image/*,video/*,audio/*" style="display:none" />
 
-            <button id="btnRec" type="button" title="Голосовое">🎙️</button>
-            <div class="rec-timer" id="recTimer">● 00:00</div>
+            <button id="btnRecHold" type="button" title="Hold to record">🎙️</button>
 
             <input id="text" placeholder="Напиши сообщение." />
             <button id="btnSend" type="button">Send</button>
@@ -585,25 +633,21 @@
   </div>
 
   <!-- AUTH MODAL -->
-  <div class="modal-overlay" id="authOverlay" aria-hidden="true">
+  <div class="overlay" id="authOverlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-top">
         <div class="tabs">
           <div class="tab active" id="tabLogin">Login</div>
           <div class="tab" id="tabRegister">Register</div>
         </div>
-        <button class="xbtn" id="btnCloseAuth" type="button" title="Close">✕</button>
+        <button class="xbtn" id="btnCloseAuth" type="button">✕</button>
       </div>
       <div class="modal-body">
         <input id="authUsername" placeholder="username (3-20: a-z 0-9 _)" autocomplete="username" />
         <input id="authPassword" placeholder="password (мин 6)" type="password" autocomplete="current-password" />
         <div class="err" id="authError"></div>
-        <div class="btnrow">
-          <button id="btnAuthSubmit" type="button">Login</button>
-        </div>
-        <div class="modal-hint small">
-          После успешного входа/регистрации окно закроется автоматически.
-        </div>
+        <div class="btnrow"><button id="btnAuthSubmit" type="button">Login</button></div>
+        <div class="small">После успешного входа/регистрации окно закроется автоматически.</div>
       </div>
     </div>
   </div>
@@ -619,10 +663,51 @@
         <input id="sheetInput" placeholder="" />
         <div class="sheet-actions">
           <button id="btnSheetOk" type="button">OK</button>
+          <button id="btnSheetCancel" type="button" class="danger">Cancel</button>
         </div>
         <div class="small" id="sheetHint" style="opacity:.85;"></div>
       </div>
     </div>
+  </div>
+
+  <!-- PROFILE SHEET -->
+  <div class="sheet-overlay" id="profileOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b>Профиль</b>
+        <button class="xbtn" id="btnCloseProfile" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <div class="small">Аватар</div>
+        <input id="avatarFile" type="file" accept="image/*"/>
+        <button id="btnUploadAvatar" class="btn" type="button">Загрузить</button>
+        <div class="small" id="profileHint">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VOICE PREVIEW -->
+  <div class="overlay" id="voicePreviewOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-top">
+        <b>Голосовое</b>
+        <button class="xbtn" id="btnCloseVoicePreview" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="voicePreviewPlayer"></div>
+        <div class="btnrow" style="display:flex; gap:10px;">
+          <button id="btnSendVoiceNow" type="button" style="flex:1;">Отправить</button>
+          <button id="btnCancelVoiceNow" type="button" class="danger" style="flex:1;">Отмена</button>
+        </div>
+        <div class="small" id="voicePreviewHint">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTEXT MENU -->
+  <div class="ctx" id="ctxMenu">
+    <button id="ctxEdit">Edit message</button>
+    <button id="ctxCancel">Cancel</button>
   </div>
 
 <script>
@@ -630,22 +715,47 @@
 
   let token = localStorage.getItem("token") || "";
   let me = localStorage.getItem("username") || "";
+  let avatarUrl = localStorage.getItem("avatar_url") || "";
   let ws = null;
 
   let chats = [];
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
 
+  // local cache to update edited messages quickly
+  const msgElById = new Map();
+
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
-  /* ===== Drawer ===== */
+  // --- sound notify (WebAudio beep) ---
+  let audioCtx = null;
+  function beep(){
+    try{
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = audioCtx;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.0001;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.start(t);
+      o.stop(t + 0.2);
+    }catch(_){}
+  }
+
+  // --- Drawer ---
   const sidebar = $("sidebar");
   const backdrop = $("drawerBackdrop");
   function openSidebar(){ sidebar.classList.add("open"); backdrop.classList.add("open"); }
   function closeSidebar(){ sidebar.classList.remove("open"); backdrop.classList.remove("open"); }
   function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
 
-  /* ===== Scroll ===== */
+  // --- scroll ---
   const toBottomBtn = $("btnToBottom");
   function isNearBottom(el, px=160){
     return (el.scrollHeight - el.scrollTop - el.clientHeight) < px;
@@ -702,39 +812,29 @@
     return data;
   }
 
-  /* ===== Voice waveform ===== */
-  const VOICE = {
-    peaksCache: new Map(),
-    audioCache: new Map(),
-    players: new Set(),
-  };
-
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
+  // =========================
+  // Voice waveform player (same as before)
+  // =========================
+  const VOICE = { peaksCache: new Map(), audioCache: new Map(), players: new Set() };
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
   function fmtClock(sec){
     sec = Math.max(0, sec || 0);
     const m = String(Math.floor(sec/60)).padStart(1,"0");
     const s = String(Math.floor(sec%60)).padStart(2,"0");
     return `${m}:${s}`;
   }
-
   async function getPeaks(url, samples = 120){
     if (VOICE.peaksCache.has(url)) return VOICE.peaksCache.get(url);
-
     const res = await fetch(url, { mode: "cors" });
     if (!res.ok) throw new Error(`waveform fetch failed: ${res.status}`);
     const buf = await res.arrayBuffer();
-
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) throw new Error("AudioContext not supported");
-
     const ctx = new Ctx();
     const audioBuf = await ctx.decodeAudioData(buf.slice(0));
     try{ await ctx.close(); }catch(_){}
-
     const ch = audioBuf.getChannelData(0);
     const block = Math.floor(ch.length / samples) || 1;
-
     const peaks = new Float32Array(samples);
     for (let i=0;i<samples;i++){
       let start = i * block;
@@ -746,16 +846,13 @@
       }
       peaks[i] = max;
     }
-
     let pmax = 0;
     for (let i=0;i<peaks.length;i++) pmax = Math.max(pmax, peaks[i]);
     const k = pmax > 0 ? (1 / pmax) : 1;
     for (let i=0;i<peaks.length;i++) peaks[i] *= k;
-
     VOICE.peaksCache.set(url, peaks);
     return peaks;
   }
-
   function getOrCreateAudio(url){
     if (VOICE.audioCache.has(url)) return VOICE.audioCache.get(url);
     const a = new Audio(url);
@@ -764,76 +861,57 @@
     VOICE.audioCache.set(url, a);
     return a;
   }
-
   function stopAllExcept(except){
     for (const p of VOICE.players){
       if (p !== except) p.stop();
     }
   }
-
   function drawWave(canvas, peaks, progress01){
     const dpr = window.devicePixelRatio || 1;
     const cssW = canvas.clientWidth || 300;
     const cssH = canvas.clientHeight || 34;
     const W = Math.floor(cssW * dpr);
     const H = Math.floor(cssH * dpr);
-
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
-
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0,0,W,H);
-
     const n = peaks.length;
     const gap = Math.floor(2 * dpr);
     const barW = Math.max(1, Math.floor((W - gap*(n-1)) / n));
     const mid = Math.floor(H/2);
     const maxBar = Math.floor(H * 0.78);
-
     const progX = Math.floor(W * clamp(progress01, 0, 1));
-
     for (let i=0;i<n;i++){
       const x = i * (barW + gap);
       const amp = peaks[i];
       const h = Math.max(2*dpr, Math.floor(amp * maxBar));
       const y = mid - Math.floor(h/2);
-
       const filled = (x + barW) <= progX;
       ctx.fillStyle = filled ? "rgba(230,238,252,.95)" : "rgba(230,238,252,.35)";
       ctx.fillRect(x, y, barW, h);
     }
   }
-
   function createVoicePlayer(url){
     const root = document.createElement("div");
     root.className = "voice";
-
     const btn = document.createElement("div");
     btn.className = "play";
     btn.textContent = "▶";
-    btn.title = "Play/Pause";
-
     const waveWrap = document.createElement("div");
     waveWrap.className = "wave";
-
     const canvas = document.createElement("canvas");
     canvas.height = 34;
-
     const timeRow = document.createElement("div");
     timeRow.className = "time";
-
     const left = document.createElement("span");
     left.textContent = "0:00";
-
     const right = document.createElement("span");
     right.textContent = "0:00";
-
     timeRow.appendChild(left);
     timeRow.appendChild(right);
-
     waveWrap.appendChild(canvas);
     waveWrap.appendChild(timeRow);
-
     root.appendChild(btn);
     root.appendChild(waveWrap);
 
@@ -844,21 +922,18 @@
       peaks: null,
       raf: 0,
       destroyed: false,
-
       async init(){
         try{
           this.peaks = await getPeaks(url, 120);
           if (this.destroyed) return;
           drawWave(this.canvas, this.peaks, 0);
-        }catch(e){
+        }catch(_){
           this.peaks = new Float32Array(120);
           for (let i=0;i<this.peaks.length;i++) this.peaks[i] = 0.15;
           drawWave(this.canvas, this.peaks, 0);
         }
       },
-
       setBtn(){ this.btn.textContent = this.audio.paused ? "▶" : "⏸"; },
-
       tick(){
         if (this.destroyed) return;
         const dur = this.audio.duration || 0;
@@ -869,16 +944,11 @@
         if (this.peaks) drawWave(this.canvas, this.peaks, p);
         this.raf = requestAnimationFrame(()=> this.tick());
       },
-
       playPause(){
         stopAllExcept(this);
-        if (this.audio.paused){
-          this.audio.play().catch(()=>{});
-        } else {
-          this.audio.pause();
-        }
+        if (this.audio.paused) this.audio.play().catch(()=>{});
+        else this.audio.pause();
       },
-
       stop(){
         try{ this.audio.pause(); }catch(_){}
         try{ this.audio.currentTime = 0; }catch(_){}
@@ -887,7 +957,6 @@
         if (this.raf) cancelAnimationFrame(this.raf);
         this.raf = 0;
       },
-
       seekByClientX(clientX){
         const r = this.canvas.getBoundingClientRect();
         const x = clamp(clientX - r.left, 0, r.width);
@@ -895,7 +964,6 @@
         const dur = this.audio.duration || 0;
         if (dur) this.audio.currentTime = p * dur;
       },
-
       destroy(){
         this.destroyed = true;
         this.stop();
@@ -923,7 +991,9 @@
     return player;
   }
 
-  /* ===== AUTH ===== */
+  // =========================
+  // AUTH
+  // =========================
   let authMode = "login";
   let authBusy = false;
 
@@ -937,7 +1007,6 @@
     el.textContent = "";
     el.style.display = "none";
   }
-
   function setAuthTab(mode){
     authMode = mode;
     $("tabLogin").classList.toggle("active", mode==="login");
@@ -946,7 +1015,6 @@
     $("authPassword").setAttribute("autocomplete", mode==="login" ? "current-password" : "new-password");
     hideAuthError();
   }
-
   function openAuth(mode="login"){
     setAuthTab(mode);
     $("authOverlay").classList.add("open");
@@ -959,29 +1027,23 @@
     $("authOverlay").classList.remove("open");
     $("authOverlay").setAttribute("aria-hidden","true");
   }
-
   async function authSubmit(){
     if (authBusy) return;
     hideAuthError();
-
     const username = $("authUsername").value.trim();
     const password = $("authPassword").value;
-
     if (!username) return showAuthError("Введите username.");
     if (!password) return showAuthError("Введите пароль.");
-
     authBusy = true;
     $("btnAuthSubmit").disabled = true;
     $("btnAuthSubmit").textContent = (authMode==="login") ? "Logging in…" : "Registering…";
-
     try{
       const data = await api(authMode==="login" ? "/api/login" : "/api/register", "POST", {username, password});
       token = data.token;
       me = data.username;
-
       localStorage.setItem("token", token);
       localStorage.setItem("username", me);
-
+      await refreshMe();
       setWhoami();
       closeAuth();
       addSystem(`✅ Logged in as ${me}`);
@@ -995,7 +1057,16 @@
     }
   }
 
-  /* ===== Create Sheet ===== */
+  async function refreshMe(){
+    if (!token) return;
+    const data = await api("/api/me");
+    avatarUrl = data.avatar_url || "";
+    localStorage.setItem("avatar_url", avatarUrl || "");
+  }
+
+  // =========================
+  // Sheets (create + profile)
+  // =========================
   const sheet = {
     overlay: $("sheetOverlay"),
     title: $("sheetTitle"),
@@ -1004,13 +1075,11 @@
     ok: $("btnSheetOk"),
     mode: null
   };
-
   function openSheet(mode){
     if (!token) return openAuth("login");
     sheet.mode = mode;
     sheet.overlay.classList.add("open");
     sheet.overlay.setAttribute("aria-hidden","false");
-
     if (mode === "group"){
       sheet.title.textContent = "Новый групповой чат";
       sheet.input.placeholder = "Название (например: work)";
@@ -1022,39 +1091,32 @@
       sheet.hint.textContent = "Пользователь должен быть зарегистрирован.";
       sheet.ok.textContent = "Open DM";
     }
-
     sheet.input.value = "";
     setTimeout(()=> sheet.input.focus(), 50);
   }
-
   function closeSheet(){
     sheet.overlay.classList.remove("open");
     sheet.overlay.setAttribute("aria-hidden","true");
     sheet.mode = null;
   }
 
-  async function createGroupChat(title){
-    const t = (title || "").trim();
-    if (!t) return addSystem("⚠️ Введи название чата.");
-    const data = await api("/api/chats", "POST", { title: t });
-    await refreshChats(false);
-    selectChat(data.chat.id);
-    addSystem(`✅ Created: ${data.chat.title}`);
+  const profile = { overlay: $("profileOverlay") };
+  function openProfile(){
+    if (!token) return openAuth("login");
+    $("profileHint").textContent = `@${me}`;
+    profile.overlay.classList.add("open");
+    profile.overlay.setAttribute("aria-hidden","false");
+  }
+  function closeProfile(){
+    profile.overlay.classList.remove("open");
+    profile.overlay.setAttribute("aria-hidden","true");
   }
 
-  async function createDM(user){
-    const u = (user || "").trim();
-    if (!u) return addSystem("⚠️ Введи username.");
-    const data = await api("/api/chats/dm", "POST", { username: u });
-    await refreshChats(false);
-    selectChat(data.chat.id);
-    addSystem(`✅ ${data.chat.title}`);
-  }
-
-  /* ===== Websocket ===== */
+  // =========================
+  // WS
+  // =========================
   function connectWS(){
     if (!token || !activeChatId) return;
-
     if (ws) { try{ ws.close(); }catch{} ws = null; }
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -1069,17 +1131,52 @@
     ws.onmessage = (ev) => {
       let data = null;
       try{ data = JSON.parse(ev.data); }catch{ return; }
-      if (data && data.type === "message" && data.chat_id === activeChatId){
+
+      if (data.type === "message" && data.chat_id === activeChatId){
+        // звук только на чужие сообщения
+        if (data.sender && data.sender !== me) beep();
         addMsg(data);
+        return;
+      }
+
+      if (data.type === "message_edited" && data.chat_id === activeChatId){
+        applyEdited(data.id, data.text, data.updated_at, data.is_edited);
+        return;
+      }
+
+      if (data.type === "chat_deleted"){
+        // если удалили активный чат — обновим список
+        refreshChats(true).catch(()=>{});
+        addSystem("🗑 Чат удалён.");
+        return;
       }
     };
   }
 
-  /* ===== Chats ===== */
+  // =========================
+  // Chats
+  // =========================
+  function computeChatTitle(c){
+    let title = c.title || c.id;
+    if (c.type === "dm" && c.title && c.title.startsWith("dm:")){
+      const parts = c.title.slice(3).split("|");
+      if (parts.length === 2){
+        const other = parts[0] === me ? parts[1] : parts[0];
+        title = `DM: ${other}`;
+      }
+    }
+    return title;
+  }
+
+  function canDeleteChat(c){
+    if (c.id === "general") return false;
+    if (c.type === "dm") return true;
+    return (c.created_by === me);
+  }
+
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
-
     if (!chats.length){
       const div = document.createElement("div");
       div.className = "small";
@@ -1087,7 +1184,6 @@
       list.appendChild(div);
       return;
     }
-
     for (const c of chats){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
@@ -1095,16 +1191,7 @@
       const left = document.createElement("div");
       left.className = "left";
 
-      const typeLabel = (c.type === "dm") ? "DM" : "GROUP";
-
-      let title = c.title || c.id;
-      if (c.type === "dm" && c.title && c.title.startsWith("dm:")){
-        const parts = c.title.slice(3).split("|");
-        if (parts.length === 2){
-          const other = parts[0] === me ? parts[1] : parts[0];
-          title = `DM: ${other}`;
-        }
-      }
+      const title = computeChatTitle(c);
 
       const t1 = document.createElement("div");
       t1.className = "title";
@@ -1119,10 +1206,37 @@
 
       const badge = document.createElement("span");
       badge.className = "badge";
-      badge.textContent = typeLabel;
+      badge.textContent = (c.type === "dm") ? "DM" : "GROUP";
 
       item.appendChild(left);
-      item.appendChild(badge);
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.gap = "8px";
+      right.style.alignItems = "center";
+      right.appendChild(badge);
+
+      if (canDeleteChat(c)){
+        const del = document.createElement("div");
+        del.className = "trash";
+        del.textContent = "🗑";
+        del.title = "Удалить чат";
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          const ok = confirm(`Удалить чат "${title}"?`);
+          if (!ok) return;
+          try{
+            await api(`/api/chats/${encodeURIComponent(c.id)}`, "DELETE");
+            addSystem(`🗑 Deleted: ${title}`);
+            await refreshChats(true);
+          }catch(err){
+            addSystem("❌ " + (err.message || err));
+          }
+        };
+        right.appendChild(del);
+      }
+
+      item.appendChild(right);
 
       item.onclick = () => {
         selectChat(c.id);
@@ -1135,7 +1249,6 @@
 
   async function refreshChats(selectIfNeeded){
     if (!token){ openAuth("login"); return; }
-
     const data = await api("/api/chats");
     chats = (data.chats || []);
     renderChatList();
@@ -1162,23 +1275,13 @@
 
   function selectChat(chatId){
     stopAllExcept(null);
+    msgElById.clear();
 
     activeChatId = chatId;
     localStorage.setItem("activeChatId", activeChatId);
 
     const found = chats.find(c => c.id === chatId);
-    if (found){
-      activeChatTitle = found.title || found.id;
-      if (found.type === "dm" && found.title && found.title.startsWith("dm:")){
-        const parts = found.title.slice(3).split("|");
-        if (parts.length === 2){
-          const other = parts[0] === me ? parts[1] : parts[0];
-          activeChatTitle = `DM: ${other}`;
-        }
-      }
-    } else {
-      activeChatTitle = chatId;
-    }
+    activeChatTitle = found ? computeChatTitle(found) : chatId;
 
     $("msgs").innerHTML = "";
     addSystem(`📌 Chat: ${activeChatTitle}`);
@@ -1188,23 +1291,57 @@
     loadHistory();
   }
 
-  /* ===== Messages ===== */
+  async function createGroupChat(title){
+    const t = (title || "").trim();
+    if (!t) return addSystem("⚠️ Введи название чата.");
+    const data = await api("/api/chats", "POST", { title: t });
+    await refreshChats(false);
+    selectChat(data.chat.id);
+    addSystem(`✅ Created: ${data.chat.title}`);
+  }
+
+  async function createDM(user){
+    const u = (user || "").trim();
+    if (!u) return addSystem("⚠️ Введи username.");
+    const data = await api("/api/chats/dm", "POST", { username: u });
+    await refreshChats(false);
+    selectChat(data.chat.id);
+    addSystem(`✅ ${data.chat.title}`);
+  }
+
+  // =========================
+  // Messages + edit
+  // =========================
   function addMsg(m){
     const box = $("msgs");
 
     const div = document.createElement("div");
     div.className = "msg" + ((m.sender === me) ? " me" : "");
+    div.dataset.msgId = String(m.id || "");
+    div.dataset.sender = String(m.sender || "");
+    div.dataset.text = String(m.text || "");
+    div.dataset.mediaKind = String(m.media_kind || "");
 
     const meta = document.createElement("div");
     meta.className = "meta";
 
     const left = document.createElement("b");
     left.textContent = m.sender || "—";
+
     const right = document.createElement("span");
     right.textContent = fmtTs(m.created_at);
 
     meta.appendChild(left);
     meta.appendChild(right);
+
+    // edited label
+    if (m.is_edited){
+      const ed = document.createElement("span");
+      ed.className = "edited";
+      ed.textContent = "edited";
+      right.appendChild(ed);
+    }
+
     div.appendChild(meta);
 
     const media_url = m.media_url || "";
@@ -1245,17 +1382,56 @@
       div.appendChild(wrap);
     }
 
-    if (text){
-      const body = document.createElement("div");
-      body.textContent = text;
-      body.style.marginTop = (media_url ? "8px" : "0");
-      div.appendChild(body);
-    }
+    const body = document.createElement("div");
+    body.textContent = text;
+    body.style.marginTop = (media_url ? "8px" : "0");
+    body.dataset.role = "body";
+    div.appendChild(body);
+
+    // context menu hook for own text-only messages
+    div.addEventListener("contextmenu", (e)=>{
+      e.preventDefault();
+      maybeOpenCtx(div, e.clientX, e.clientY);
+    });
+
+    // mobile long-press
+    let lpTimer = null;
+    div.addEventListener("pointerdown", (e)=>{
+      if (e.pointerType === "mouse") return;
+      lpTimer = setTimeout(()=> {
+        maybeOpenCtx(div, e.clientX, e.clientY);
+      }, 520);
+    });
+    div.addEventListener("pointerup", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
+    div.addEventListener("pointercancel", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
+
+    msgElById.set(m.id, div);
 
     const stick = isNearBottom(box);
     box.appendChild(div);
     if (stick) scrollToBottom(box);
     updateToBottom();
+  }
+
+  function applyEdited(id, text, updated_at, is_edited){
+    const el = msgElById.get(id);
+    if (!el) return;
+    el.dataset.text = text;
+
+    const body = el.querySelector('[data-role="body"]');
+    if (body) body.textContent = text;
+
+    // add edited label
+    const metaRight = el.querySelector(".meta span");
+    if (metaRight){
+      // ensure edited label exists
+      if (is_edited && !metaRight.querySelector(".edited")){
+        const ed = document.createElement("span");
+        ed.className = "edited";
+        ed.textContent = "edited";
+        metaRight.appendChild(ed);
+      }
+    }
   }
 
   async function loadHistory(){
@@ -1264,6 +1440,7 @@
 
     const box = $("msgs");
     box.innerHTML = "";
+    msgElById.clear();
     addSystem(`📥 Loading: ${activeChatTitle}…`);
 
     try{
@@ -1291,12 +1468,14 @@
     }
   }
 
-  /* ===== Media upload ===== */
-  async function uploadMedia(file){
+  // =========================
+  // Upload media
+  // =========================
+  async function uploadMedia(file, captionOverride=null){
     if (!token) return openAuth("login");
     if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
 
-    const caption = $("text").value.trim();
+    const caption = captionOverride !== null ? captionOverride : $("text").value.trim();
 
     const fd = new FormData();
     fd.append("chat_id", activeChatId);
@@ -1325,117 +1504,291 @@
     setStatus(`🟢 WS • ${activeChatTitle}`);
   }
 
-  /* ===== Voice record ===== */
-  const recTimer = $("recTimer");
-  let rec = { active:false, mediaRecorder:null, chunks:[], t0:0, timerId:null, stream:null };
+  // =========================
+  // Hold-to-record voice with preview
+  // =========================
+  const recBtn = $("btnRecHold");
+  let rec = { active:false, mr:null, chunks:[], stream:null, startedAt:0 };
 
-  function fmtTime(sec){
-    const m = String(Math.floor(sec/60)).padStart(2,"0");
-    const s = String(Math.floor(sec%60)).padStart(2,"0");
-    return `${m}:${s}`;
+  let preview = { blob:null, file:null, url:"" };
+
+  function openVoicePreview(){
+    $("voicePreviewOverlay").classList.add("open");
+    $("voicePreviewOverlay").setAttribute("aria-hidden","false");
+
+    const holder = $("voicePreviewPlayer");
+    holder.innerHTML = "";
+
+    // use objectURL for preview
+    const aurl = preview.url;
+    const player = createVoicePlayer(aurl);
+    holder.appendChild(player.root);
+
+    $("voicePreviewHint").textContent = "Прослушай и нажми “Отправить” или “Отмена”.";
+  }
+  function closeVoicePreview(){
+    $("voicePreviewOverlay").classList.remove("open");
+    $("voicePreviewOverlay").setAttribute("aria-hidden","true");
+    $("voicePreviewPlayer").innerHTML = "";
+  }
+  function clearPreview(){
+    try{ if (preview.url) URL.revokeObjectURL(preview.url); }catch(_){}
+    preview = { blob:null, file:null, url:"" };
   }
 
-  async function startRecording(){
+  async function startHoldRec(){
     if (!token) return openAuth("login");
     if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
     if (!navigator.mediaDevices?.getUserMedia) return addSystem("⚠️ Нет доступа к микрофону.");
     if (!window.MediaRecorder) return addSystem("⚠️ MediaRecorder не поддерживается.");
 
     try{
+      clearPreview();
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
 
       rec.active = true;
-      rec.mediaRecorder = mr;
-      rec.chunks = [];
-      rec.t0 = Date.now();
+      rec.mr = mr;
       rec.stream = stream;
+      rec.chunks = [];
+      rec.startedAt = Date.now();
 
-      recTimer.classList.add("show");
-      recTimer.textContent = "● 00:00";
-      rec.timerId = setInterval(() => {
-        const sec = Math.floor((Date.now() - rec.t0)/1000);
-        recTimer.textContent = `● ${fmtTime(sec)}`;
-      }, 250);
+      recBtn.classList.add("hold");
+      setStatus("🎙 Recording… (держи кнопку)");
 
       mr.ondataavailable = (e) => { if (e.data?.size) rec.chunks.push(e.data); };
 
-      mr.onstop = async () => {
+      mr.onstop = () => {
         try{
           const blob = new Blob(rec.chunks, { type: mr.mimeType || "audio/webm" });
           const file = new File([blob], `voice_${Date.now()}.webm`, { type: blob.type });
-          await uploadMedia(file);
+          preview.blob = blob;
+          preview.file = file;
+          preview.url = URL.createObjectURL(blob);
+
+          openVoicePreview();
         }catch(e){
-          addSystem("❌ " + e.message);
+          addSystem("❌ " + (e.message || e));
         }finally{
           try{ rec.stream?.getTracks().forEach(t => t.stop()); }catch(_){}
           rec.stream = null;
-          rec.mediaRecorder = null;
+          rec.mr = null;
           rec.chunks = [];
         }
       };
 
-      mr.start(250);
-      setStatus("🎙 Recording… (нажми 🎙 ещё раз чтобы остановить)");
+      mr.start(200);
     }catch(e){
-      addSystem("❌ " + e.message);
+      addSystem("❌ " + (e.message || e));
     }
   }
 
-  function stopRecording(){
+  function stopHoldRec(){
     if (!rec.active) return;
     rec.active = false;
-    clearInterval(rec.timerId);
-    rec.timerId = null;
-    recTimer.classList.remove("show");
-    try{ rec.mediaRecorder?.stop(); }catch(_){}
-    setStatus("⏫ Upload voice…");
+    recBtn.classList.remove("hold");
+    setStatus("—");
+    try{ rec.mr?.stop(); }catch(_){}
   }
 
-  /* ===== Session ===== */
+  async function sendVoiceNow(){
+    if (!preview.file) return;
+    try{
+      setStatus("⏫ Upload voice…");
+      await uploadMedia(preview.file, ""); // caption empty by default
+      closeVoicePreview();
+      clearPreview();
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }finally{
+      setStatus(`🟢 WS • ${activeChatTitle}`);
+    }
+  }
+
+  // =========================
+  // Avatar upload
+  // =========================
+  async function uploadAvatar(){
+    const f = $("avatarFile").files && $("avatarFile").files[0];
+    if (!f) return $("profileHint").textContent = "Выбери файл.";
+    try{
+      $("profileHint").textContent = "Uploading…";
+      const fd = new FormData();
+      fd.append("file", f);
+
+      const res = await fetch("/api/avatar", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: fd
+      });
+
+      const raw = await res.text();
+      let data = {};
+      try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
+      if (!res.ok) throw new Error(data.detail || raw);
+
+      avatarUrl = data.avatar_url || "";
+      localStorage.setItem("avatar_url", avatarUrl || "");
+      setWhoami();
+      $("profileHint").textContent = "✅ Готово!";
+    }catch(e){
+      $("profileHint").textContent = "❌ " + (e.message || e);
+    }
+  }
+
+  // =========================
+  // Context menu for edit
+  // =========================
+  const ctx = {
+    el: $("ctxMenu"),
+    edit: $("ctxEdit"),
+    cancel: $("ctxCancel"),
+    currentMsgEl: null
+  };
+
+  function closeCtx(){
+    ctx.el.classList.remove("open");
+    ctx.currentMsgEl = null;
+  }
+
+  function maybeOpenCtx(msgEl, x, y){
+    const sender = msgEl.dataset.sender || "";
+    const mediaKind = msgEl.dataset.mediaKind || "";
+    if (sender !== me) return;          // only own
+    if (mediaKind && mediaKind !== "null" && mediaKind !== "") return; // text-only
+
+    ctx.currentMsgEl = msgEl;
+
+    ctx.el.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
+    ctx.el.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
+    ctx.el.classList.add("open");
+  }
+
+  async function startInlineEdit(msgEl){
+    closeCtx();
+    const msgId = Number(msgEl.dataset.msgId || "0");
+    if (!msgId) return;
+
+    const body = msgEl.querySelector('[data-role="body"]');
+    if (!body) return;
+
+    const old = msgEl.dataset.text || body.textContent || "";
+
+    // inline editor
+    const input = document.createElement("input");
+    input.value = old;
+    input.style.marginTop = "6px";
+
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "8px";
+    row.style.marginTop = "8px";
+
+    const save = document.createElement("button");
+    save.className = "btn";
+    save.textContent = "Save";
+    save.style.flex = "1";
+
+    const cancel = document.createElement("button");
+    cancel.className = "btn danger";
+    cancel.textContent = "Cancel";
+    cancel.style.flex = "1";
+
+    const originalText = body.textContent;
+    body.textContent = "";
+    body.appendChild(input);
+    body.appendChild(row);
+    row.appendChild(save);
+    row.appendChild(cancel);
+
+    const cleanup = () => {
+      body.innerHTML = "";
+      body.textContent = originalText;
+    };
+
+    cancel.onclick = () => cleanup();
+
+    save.onclick = async () => {
+      const newText = input.value.trim();
+      if (!newText) return addSystem("⚠️ Текст не может быть пустым.");
+      try{
+        await api(`/api/messages/${msgId}`, "PATCH", { text: newText });
+        // WS event придёт и обновит, но обновим сразу для UX
+        applyEdited(msgId, newText, Math.floor(Date.now()/1000), true);
+        body.innerHTML = "";
+        body.textContent = newText;
+      }catch(e){
+        addSystem("❌ " + (e.message || e));
+        cleanup();
+      }
+    };
+
+    input.addEventListener("keydown", (e)=>{
+      if (e.key === "Enter") save.click();
+      if (e.key === "Escape") cancel.click();
+    });
+
+    setTimeout(()=> input.focus(), 10);
+  }
+
+  // =========================
+  // Session
+  // =========================
   function setWhoami(){
-    $("whoami").textContent = token ? `@${me}` : "Не авторизован";
+    $("whoText").textContent = token ? `@${me}` : "Не авторизован";
     $("btnOpenAuth").style.display = token ? "none" : "";
     $("btnLogout").style.display = token ? "" : "none";
+    $("btnProfile").style.display = token ? "" : "none";
+
+    const img = $("topAvatar");
+    if (token && avatarUrl){
+      img.src = avatarUrl;
+      img.classList.add("show");
+    } else {
+      img.classList.remove("show");
+      img.removeAttribute("src");
+    }
   }
 
   function logout(){
     stopAllExcept(null);
-
     token = "";
     me = "";
+    avatarUrl = "";
     localStorage.removeItem("token");
     localStorage.removeItem("username");
+    localStorage.removeItem("avatar_url");
     localStorage.removeItem("activeChatId");
-
     if (ws) { try{ ws.close(); }catch{} ws = null; }
-
     $("msgs").innerHTML = "";
     chats = [];
     activeChatId = "";
     activeChatTitle = "";
     renderChatList();
-
     setWhoami();
     setStatus("👋 Logged out");
     setNet("offline");
-
     closeSidebar();
     closeSheet();
+    closeProfile();
+    closeVoicePreview();
     openAuth("login");
   }
 
-  /* ===== Wiring ===== */
+  // =========================
+  // Wiring
+  // =========================
   $("btnToggleSidebar").onclick = () => toggleSidebar();
   $("drawerBackdrop").onclick = () => closeSidebar();
   window.addEventListener("resize", ()=> { if (!isMobile()) closeSidebar(); });
 
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
+  $("btnProfile").onclick = () => openProfile();
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
-
   $("btnCloseAuth").onclick = () => { if (!token) return; closeAuth(); };
   $("btnAuthSubmit").onclick = () => authSubmit();
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
@@ -1444,6 +1797,7 @@
   $("btnOpenCreateDM").onclick = () => openSheet("dm");
 
   $("btnCloseSheet").onclick = () => closeSheet();
+  $("btnSheetCancel").onclick = () => closeSheet();
   $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
   $("btnSheetOk").onclick = async () => {
     try{
@@ -1453,58 +1807,92 @@
       if (mode === "group") await createGroupChat(value);
       if (mode === "dm") await createDM(value);
       if (isMobile()) closeSidebar();
-    }catch(e){ addSystem("❌ " + e.message); }
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
   };
   $("sheetInput").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
-  $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
-  $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
+  $("btnCloseProfile").onclick = () => closeProfile();
+  $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
+  $("btnUploadAvatar").onclick = () => uploadAvatar();
 
-  $("btnSend").onclick = () => send();
-  $("text").addEventListener("keydown", (e)=>{ if (e.key === "Enter") send(); });
+  $("btnCloseVoicePreview").onclick = () => { closeVoicePreview(); clearPreview(); };
+  $("btnCancelVoiceNow").onclick = () => { closeVoicePreview(); clearPreview(); };
+  $("btnSendVoiceNow").onclick = () => sendVoiceNow();
 
+  // attach media
   $("btnAttach").onclick = () => $("file").click();
   $("file").addEventListener("change", async () => {
     const f = $("file").files && $("file").files[0];
     if (!f) return;
     try{ await uploadMedia(f); }
-    catch(e){ addSystem("❌ " + e.message); }
+    catch(e){ addSystem("❌ " + (e.message || e)); }
   });
 
-  $("btnRec").onclick = async () => {
-    if (!rec.active) await startRecording();
-    else stopRecording();
+  // send text
+  $("btnSend").onclick = () => send();
+  $("text").addEventListener("keydown", (e)=>{ if (e.key === "Enter") send(); });
+
+  // hold-to-record handlers (pointer events)
+  recBtn.addEventListener("pointerdown", async (e)=>{
+    e.preventDefault();
+    if (rec.active) return;
+    await startHoldRec();
+  });
+  recBtn.addEventListener("pointerup", (e)=>{ e.preventDefault(); stopHoldRec(); });
+  recBtn.addEventListener("pointercancel", (e)=>{ e.preventDefault(); stopHoldRec(); });
+  recBtn.addEventListener("pointerleave", (e)=>{ if (rec.active) stopHoldRec(); });
+
+  // ctx menu
+  ctx.edit.onclick = async () => {
+    if (!ctx.currentMsgEl) return closeCtx();
+    await startInlineEdit(ctx.currentMsgEl);
   };
+  ctx.cancel.onclick = () => closeCtx();
+  document.addEventListener("click", (e)=>{
+    if (!ctx.el.contains(e.target)) closeCtx();
+  });
+
+  $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
+  $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
 
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
 
   document.addEventListener("keydown", (e)=>{
     if (e.key === "Escape"){
-      if (rec.active) stopRecording();
+      closeCtx();
       closeSidebar();
       closeSheet();
+      closeProfile();
     }
   });
 
+  // =========================
+  // Bootstrap
+  // =========================
   setWhoami();
 
-  /* ===== Bootstrap ===== */
   if (token){
     addSystem("🔁 Checking session…");
     api("/api/me")
-      .then(data => {
+      .then(async data => {
         me = data.username;
+        avatarUrl = data.avatar_url || "";
         localStorage.setItem("username", me);
+        localStorage.setItem("avatar_url", avatarUrl || "");
         setWhoami();
-        return refreshChats(true);
+        await refreshChats(true);
       })
       .catch(() => {
         token = "";
         localStorage.removeItem("token");
         localStorage.removeItem("username");
+        localStorage.removeItem("avatar_url");
         localStorage.removeItem("activeChatId");
         me = "";
+        avatarUrl = "";
         setWhoami();
         addSystem("🔐 Сессия истекла. Войди снова.");
         openAuth("login");
