@@ -254,6 +254,16 @@
       font-style: italic;
     }
 
+    /* status ticks */
+    .ticks{
+      font-size: 12px;
+      opacity: .9;
+      color: rgba(230,238,252,.75);
+      align-self: flex-end;
+      user-select:none;
+      margin-top: 2px;
+    }
+
     .media{
       margin-top: 6px;
       border-radius: 12px;
@@ -587,8 +597,9 @@
 
             <div class="sep"></div>
 
-            <div class="row">
-              <button class="btn" id="btnLoadHistory" type="button">Load history</button>
+            <div class="row" style="gap:8px;">
+              <button class="btn" id="btnLoadHistory" type="button" style="flex:1;">Load history</button>
+              <button class="btn" id="btnInvite" type="button" style="flex:1;">Invite</button>
             </div>
 
             <div class="sep"></div>
@@ -596,7 +607,7 @@
             <div class="chatlist" id="chatlist"></div>
 
             <div class="small" style="margin-top:auto;">
-              ➕ group • 💬 DM • 🗑 delete chat • ПКМ/long-press msg → Edit/Delete • typing… • unread badges
+              ➕ group • 💬 DM • Invite (только group) • 🗑 delete chat • ПКМ/long-press msg → Edit/Delete • typing… • unread badges
             </div>
           </div>
         </div>
@@ -712,12 +723,15 @@
   let me = localStorage.getItem("username") || "";
   let avatarUrl = localStorage.getItem("avatar_url") || "";
 
-  // GLOBAL WS (one connection per user)
+  // GLOBAL WS
   let ws = null;
 
   let chats = [];
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
+  let activeChatType = "";
+  let activeChatCreatedBy = "";
+
   const msgElById = new Map();
   let lastMsgId = 0;
 
@@ -1029,13 +1043,14 @@
       me = data.username;
       localStorage.setItem("token", token);
       localStorage.setItem("username", me);
+
       await refreshMe();
       setWhoami();
       closeAuth();
       addSystem(`✅ Logged in as ${me}`);
 
-      connectWS_GLOBAL();            // <— IMPORTANT
-      await refreshChats(true);      // load chats + choose active + load history
+      connectWS_GLOBAL();
+      await refreshChats(true);
     }catch(e){
       showAuthError(String(e.message || e));
     }finally{
@@ -1093,6 +1108,32 @@
   }
 
   // =========================
+  // Delivered ACK
+  // =========================
+  function wsSendDelivered(messageId, chatId){
+    if (!ws || ws.readyState !== 1) return;
+    try{
+      ws.send(JSON.stringify({
+        type: "delivered",
+        message_id: Number(messageId),
+        chat_id: String(chatId || activeChatId || "")
+      }));
+    }catch(_){}
+  }
+
+  // =========================
+  // Read handling in UI (✓✓ read)
+  // =========================
+  function markMyMessagesReadUpTo(lastReadId){
+    for (const [id, el] of msgElById.entries()){
+      if (Number(id) <= Number(lastReadId) && el.dataset.sender === me){
+        const st = el.querySelector('[data-role="status"]');
+        if (st) st.textContent = "✓✓ read";
+      }
+    }
+  }
+
+  // =========================
   // GLOBAL WS connect
   // =========================
   function connectWS_GLOBAL(){
@@ -1117,9 +1158,14 @@
       let data = null;
       try{ data = JSON.parse(ev.data); }catch{ return; }
 
+      // invited -> refresh chats
+      if (data.type === "invited"){
+        refreshChats(true).catch(()=>{});
+        return;
+      }
+
       // typing (server sends for any chat)
       if (data.type === "typing"){
-        // show typing only in active chat
         if (data.chat_id === activeChatId){
           typingState.set(data.username, !!data.is_typing);
           renderTyping();
@@ -1127,16 +1173,42 @@
         return;
       }
 
+      // delivered event (server should rebroadcast to chat)
+      if (data.type === "delivered"){
+        const mid = Number(data.message_id || 0);
+        const el = msgElById.get(mid);
+        if (el && el.dataset.sender === me){
+          const st = el.querySelector('[data-role="status"]');
+          if (st && st.textContent.trim() === "✓") st.textContent = "✓✓";
+        }
+        return;
+      }
+
+      // read event (server broadcasts on mark_read)
+      if (data.type === "read"){
+        // For DM: when other read, mark our messages read.
+        // For groups: simple behavior — if anyone (not me) read up to X, mark ours read up to X.
+        if (data.chat_id === activeChatId && data.username !== me){
+          markMyMessagesReadUpTo(Number(data.last_read_id || 0));
+        }
+        // update chat list (unread may change)
+        refreshChats(false).catch(()=>{});
+        return;
+      }
+
       // new message for ANY chat
       if (data.type === "message"){
         if (data.sender && data.sender !== me) beep();
 
-        // if active chat -> add to UI
+        // ACK delivered for received messages (not mine)
+        if (data.sender && data.sender !== me){
+          wsSendDelivered(data.id, data.chat_id);
+        }
+
         if (data.chat_id === activeChatId){
           addMsg(data);
         }
 
-        // always refresh chat list to update unread badges (no polling!)
         refreshChats(false).catch(()=>{});
         return;
       }
@@ -1460,6 +1532,8 @@
     if (!chats.length){
       activeChatId = "";
       activeChatTitle = "";
+      activeChatType = "";
+      activeChatCreatedBy = "";
       localStorage.removeItem("activeChatId");
       $("msgs").innerHTML = "";
       addSystem("ℹ️ У тебя пока нет чатов. Создай групповой чат или DM.");
@@ -1474,7 +1548,6 @@
       }
       selectChat(activeChatId);
     } else {
-      // just rerender selection if needed
       renderChatList();
     }
   }
@@ -1492,6 +1565,8 @@
 
     const found = chats.find(c => c.id === chatId);
     activeChatTitle = found ? computeChatTitle(found) : chatId;
+    activeChatType = found ? (found.type || "") : "";
+    activeChatCreatedBy = found ? (found.created_by || "") : "";
 
     $("msgs").innerHTML = "";
     addSystem(`📌 Chat: ${activeChatTitle}`);
@@ -1598,7 +1673,16 @@
       div.appendChild(body);
     }
 
-    // context menu (ПКМ / long press)
+    // ticks for my messages
+    if (m.sender === me){
+      const st = document.createElement("div");
+      st.className = "ticks";
+      st.dataset.role = "status";
+      st.textContent = "✓"; // sent
+      div.appendChild(st);
+    }
+
+    // context menu
     div.addEventListener("contextmenu", (e)=>{
       e.preventDefault();
       openCtxForMsg(div, e.clientX, e.clientY);
@@ -1685,7 +1769,6 @@
 
     $("text").value = "";
     try{
-      // не добавляем локально — придёт через WS
       await api("/api/messages", "POST", { chat_id: activeChatId, text });
     }catch(e){
       addSystem("❌ " + e.message);
@@ -1693,7 +1776,7 @@
   }
 
   // =========================
-  // Read marker (unread)
+  // Read marker (unread + ✓✓ read)
   // =========================
   let lastMarked = 0;
   async function maybeMarkRead(){
@@ -1707,6 +1790,25 @@
       await api(`/api/chats/${encodeURIComponent(activeChatId)}/read?last_id=${lastMsgId}`, "POST");
       refreshChats(false).catch(()=>{});
     }catch(_){}
+  }
+
+  // =========================
+  // Invite
+  // =========================
+  async function inviteUser(){
+    if (!token) return openAuth("login");
+    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
+    if (activeChatType !== "group") return addSystem("⚠️ Приглашение доступно только в групповом чате.");
+
+    const u = prompt("Username для приглашения:");
+    if (!u) return;
+
+    try{
+      await api(`/api/chats/${encodeURIComponent(activeChatId)}/invite`, "POST", { username: u.trim() });
+      addSystem(`✅ Invited: ${u.trim()}`);
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
   }
 
   // =========================
@@ -1869,6 +1971,8 @@
     chats = [];
     activeChatId = "";
     activeChatTitle = "";
+    activeChatType = "";
+    activeChatCreatedBy = "";
     renderChatList();
     setWhoami();
     setStatus("👋 Logged out");
@@ -1943,6 +2047,7 @@
 
   $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
+  $("btnInvite").onclick = () => inviteUser();
 
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
@@ -1971,7 +2076,7 @@
         localStorage.setItem("avatar_url", avatarUrl || "");
         setWhoami();
 
-        connectWS_GLOBAL();       // <— now global WS once
+        connectWS_GLOBAL();
         await refreshChats(true);
       })
       .catch(() => {

@@ -7,7 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
-from typing import Dict, Set, Optional, List
+from typing import Dict, Set, Optional, List, Any, Tuple
 
 import psycopg
 from psycopg.rows import dict_row
@@ -30,15 +30,19 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
 # =========================
-# Paths
+# Paths (MONOREPO)
+# backend/main.py
+# frontend/index.html
 # =========================
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
+FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 
 
 # =========================
@@ -51,6 +55,7 @@ DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env is required")
 
+# Normalize for psycopg
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
@@ -97,12 +102,18 @@ cloudinary.config(
 # DB helpers
 # =========================
 def db():
+    # new connection per action (simple + safe)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
 def init_db() -> None:
+    """
+    Safe "migrations" via CREATE + ALTER ... IF NOT EXISTS.
+    Render free tier -> keep it simple (no Alembic).
+    """
     with db() as conn:
         with conn.cursor() as cur:
+            # users
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -114,19 +125,19 @@ def init_db() -> None:
                 );
                 """
             )
-
+            # chats
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chats (
                     id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    title TEXT NOT NULL,
+                    type TEXT NOT NULL,         -- 'group' | 'dm'
+                    title TEXT NOT NULL,        -- group: title; dm: dm:alice|bob
                     created_by TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 );
                 """
             )
-
+            # members
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_members (
@@ -137,7 +148,7 @@ def init_db() -> None:
                 );
                 """
             )
-
+            # messages
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -146,14 +157,9 @@ def init_db() -> None:
                     sender TEXT NOT NULL,
                     text TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
-
                     updated_at BIGINT,
-                    is_edited BOOLEAN NOT NULL DEFAULT FALSE,
-
-                    deleted_for_all BOOLEAN NOT NULL DEFAULT FALSE,
-                    deleted_at BIGINT,
-                    deleted_by TEXT,
-
+                    is_edited BOOLEAN DEFAULT FALSE,
+                    deleted_for_all BOOLEAN DEFAULT FALSE,
                     media_kind TEXT,
                     media_url TEXT,
                     media_mime TEXT,
@@ -161,20 +167,7 @@ def init_db() -> None:
                 );
                 """
             )
-
-            # per-user hide (Delete for me)
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS message_hidden (
-                    message_id BIGINT NOT NULL,
-                    username TEXT NOT NULL,
-                    hidden_at BIGINT NOT NULL,
-                    PRIMARY KEY(message_id, username)
-                );
-                """
-            )
-
-            # read markers for unread counts
+            # read markers
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_reads (
@@ -186,14 +179,39 @@ def init_db() -> None:
                 );
                 """
             )
+            # delete for me (hide)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS message_hidden (
+                    message_id BIGINT NOT NULL,
+                    username TEXT NOT NULL,
+                    hidden_at BIGINT NOT NULL,
+                    PRIMARY KEY(message_id, username)
+                );
+                """
+            )
+            # delivered
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS message_delivered (
+                    message_id BIGINT NOT NULL,
+                    username TEXT NOT NULL,
+                    delivered_at BIGINT NOT NULL,
+                    PRIMARY KEY(message_id, username)
+                );
+                """
+            )
 
-            # Backward-compatible migrations
+            # --- backfill columns for older DBs ---
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at BIGINT;")
-            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;")
-            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN NOT NULL DEFAULT FALSE;")
-            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at BIGINT;")
-            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_kind TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_mime TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;")
 
         conn.commit()
 
@@ -207,18 +225,6 @@ def is_member(conn, chat_id: str, username: str) -> bool:
         return cur.fetchone() is not None
 
 
-def get_chat(conn, chat_id: str) -> Optional[dict]:
-    with conn.cursor() as cur:
-        cur.execute("SELECT id, type, title, created_by, created_at FROM chats WHERE id=%s", (chat_id,))
-        return cur.fetchone()
-
-
-def list_chat_members(conn, chat_id: str) -> List[str]:
-    with conn.cursor() as cur:
-        cur.execute("SELECT username FROM chat_members WHERE chat_id=%s", (chat_id,))
-        return [r["username"] for r in cur.fetchall()]
-
-
 def ensure_general_for(username: str) -> None:
     with db() as conn:
         with conn.cursor() as cur:
@@ -226,7 +232,7 @@ def ensure_general_for(username: str) -> None:
             if cur.fetchone() is None:
                 cur.execute(
                     "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    ("general", "group", "General", "system", int(time.time())),
+                    ("general", "group", "general", "system", int(time.time())),
                 )
 
             cur.execute(
@@ -247,6 +253,19 @@ def ensure_general_for(username: str) -> None:
                 ("general", username, int(time.time())),
             )
         conn.commit()
+
+
+def list_members(chat_id: str) -> List[str]:
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT username FROM chat_members WHERE chat_id=%s", (chat_id,))
+            return [r["username"] for r in cur.fetchall()]
+
+
+def get_chat(conn, chat_id: str) -> Optional[dict]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM chats WHERE id=%s", (chat_id,))
+        return cur.fetchone()
 
 
 # =========================
@@ -272,13 +291,11 @@ def verify_password(password: str, stored: str) -> bool:
 # =========================
 def b64url(data: bytes) -> str:
     import base64
-
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def b64urldecode(data: str) -> bytes:
     import base64
-
     pad = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode((data + pad).encode("ascii"))
 
@@ -335,8 +352,11 @@ def get_current_username(token: str = Depends(get_token)) -> str:
     return jwt_verify(token)["sub"]
 
 
+# =========================
+# Misc helpers
+# =========================
 def make_id(prefix: str = "") -> str:
-    return prefix + secrets.token_urlsafe(12)
+    return prefix + secrets.token_urlsafe(10)
 
 
 def media_kind_from_mime(mime: str) -> str:
@@ -350,13 +370,68 @@ def media_kind_from_mime(mime: str) -> str:
     return ""
 
 
+def cloudinary_resource_type(kind: str) -> str:
+    # Cloudinary treats audio as "video" resource in most cases.
+    if kind == "image":
+        return "image"
+    if kind in ("video", "audio"):
+        return "video"
+    return "raw"
+
+
+def now_ts() -> int:
+    return int(time.time())
+
+
+# =========================
+# Realtime (Global WS per user)
+# =========================
+USER_SOCKETS: Dict[str, Set[WebSocket]] = {}
+
+
+def _ws_add(username: str, ws: WebSocket) -> None:
+    USER_SOCKETS.setdefault(username, set()).add(ws)
+
+
+def _ws_remove(username: str, ws: WebSocket) -> None:
+    if username in USER_SOCKETS:
+        USER_SOCKETS[username].discard(ws)
+        if not USER_SOCKETS[username]:
+            USER_SOCKETS.pop(username, None)
+
+
+async def ws_send_safe(ws: WebSocket, payload: dict) -> None:
+    try:
+        await ws.send_text(json.dumps(payload))
+    except Exception:
+        # will be cleaned on next disconnect
+        pass
+
+
+async def broadcast_users(usernames: List[str], payload: dict) -> None:
+    if not usernames:
+        return
+    sent_to = set()
+    for u in usernames:
+        if u in sent_to:
+            continue
+        sent_to.add(u)
+        for ws in list(USER_SOCKETS.get(u, set())):
+            await ws_send_safe(ws, payload)
+
+
+async def broadcast_chat(chat_id: str, payload: dict) -> None:
+    await broadcast_users(list_members(chat_id), payload)
+
+
 # =========================
 # App
 # =========================
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # потом лучше ограничить доменом
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -366,6 +441,19 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup():
     init_db()
+
+
+# Serve frontend
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+
+@app.get("/")
+def root():
+    # Serve index.html from frontend folder if exists, else show basic text.
+    if os.path.isfile(FRONTEND_INDEX):
+        return FileResponse(FRONTEND_INDEX)
+    return {"ok": True, "hint": "frontend/index.html not found"}
 
 
 # =========================
@@ -384,103 +472,17 @@ class DMCreateIn(BaseModel):
     username: str
 
 
-class MsgIn(BaseModel):
+class InviteIn(BaseModel):
+    username: str
+
+
+class MessageCreateIn(BaseModel):
     chat_id: str
     text: str
 
 
-class MsgEditIn(BaseModel):
+class MessageEditIn(BaseModel):
     text: str
-
-
-# =========================
-# GLOBAL USER WEBSOCKET
-# =========================
-# username -> set(ws)
-user_connections: Dict[str, Set[WebSocket]] = {}
-
-
-def add_user_conn(username: str, ws: WebSocket) -> None:
-    user_connections.setdefault(username, set()).add(ws)
-
-
-def remove_user_conn(username: str, ws: WebSocket) -> None:
-    if username in user_connections:
-        user_connections[username].discard(ws)
-        if not user_connections[username]:
-            user_connections.pop(username, None)
-
-
-async def broadcast_to_users(usernames: List[str], event: dict) -> None:
-    dead: List[tuple[str, WebSocket]] = []
-    payload = json.dumps(event)
-    for u in usernames:
-        for ws in list(user_connections.get(u, set())):
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                dead.append((u, ws))
-    for u, ws in dead:
-        remove_user_conn(u, ws)
-
-
-async def broadcast_to_chat(chat_id: str, event: dict) -> None:
-    with db() as conn:
-        members = list_chat_members(conn, chat_id)
-    if members:
-        await broadcast_to_users(members, event)
-
-
-@app.websocket("/ws/user")
-async def ws_user(ws: WebSocket):
-    token = (ws.query_params.get("token") or "").strip()
-    if not token:
-        await ws.close(code=4401)
-        return
-
-    try:
-        username = jwt_verify(token)["sub"]
-    except HTTPException:
-        await ws.close(code=4401)
-        return
-
-    await ws.accept()
-    add_user_conn(username, ws)
-
-    try:
-        while True:
-            raw = await ws.receive_text()
-            try:
-                data = json.loads(raw)
-            except Exception:
-                continue
-
-            # typing event from user
-            if isinstance(data, dict) and data.get("type") == "typing":
-                chat_id = (data.get("chat_id") or "").strip()
-                is_typing = bool(data.get("is_typing", False))
-                if not chat_id:
-                    continue
-
-                # security: verify membership
-                with db() as conn:
-                    if not is_member(conn, chat_id, username):
-                        continue
-
-                await broadcast_to_chat(
-                    chat_id,
-                    {
-                        "type": "typing",
-                        "chat_id": chat_id,
-                        "username": username,
-                        "is_typing": is_typing,
-                    },
-                )
-
-    except WebSocketDisconnect:
-        pass
-    finally:
-        remove_user_conn(username, ws)
 
 
 # =========================
@@ -493,10 +495,11 @@ def register(data: AuthIn):
 
     if not USERNAME_RE.match(username):
         raise HTTPException(status_code=400, detail="Username: 3-20 символов, только буквы/цифры/_.")
+
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password: минимум 6 символов.")
 
-    now = int(time.time())
+    now = now_ts()
     try:
         with db() as conn:
             with conn.cursor() as cur:
@@ -528,7 +531,7 @@ def login(data: AuthIn):
 
     ensure_general_for(username)
 
-    now = int(time.time())
+    now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     return {"token": token, "username": username}
 
@@ -539,7 +542,7 @@ def me(username: str = Depends(get_current_username)):
         with conn.cursor() as cur:
             cur.execute("SELECT username, avatar_url FROM users WHERE username=%s", (username,))
             row = cur.fetchone()
-    return {"username": username, "avatar_url": (row or {}).get("avatar_url")}
+    return {"username": username, "avatar_url": (row["avatar_url"] if row else None)}
 
 
 # =========================
@@ -550,37 +553,32 @@ async def upload_avatar(
     file: UploadFile = File(...),
     username: str = Depends(get_current_username),
 ):
-    mime = (file.content_type or "").lower().strip()
-    if mime not in ALLOWED_IMAGE_MIME and not mime.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Аватар должен быть изображением.")
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_IMAGE_MIME and not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Avatar must be an image")
 
     data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Пустой файл.")
-    if len(data) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Аватар слишком большой (лимит 5MB).")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
 
-    public_id = f"mini_messenger/avatars/{username}"
     try:
-        uploaded = cloudinary.uploader.upload(
+        up = cloudinary.uploader.upload(
             data,
+            folder="messenger/avatars",
             resource_type="image",
-            public_id=public_id,
             overwrite=True,
-            unique_filename=False,
+            public_id=f"avatar_{username}",
         )
-        avatar_url = uploaded.get("secure_url") or uploaded.get("url")
-        if not avatar_url:
-            raise RuntimeError("Cloudinary returned no url")
+        url = up.get("secure_url") or up.get("url")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE users SET avatar_url=%s WHERE username=%s", (avatar_url, username))
+            cur.execute("UPDATE users SET avatar_url=%s WHERE username=%s", (url, username))
         conn.commit()
 
-    return {"avatar_url": avatar_url}
+    return {"ok": True, "avatar_url": url}
 
 
 # =========================
@@ -589,50 +587,46 @@ async def upload_avatar(
 @app.get("/api/chats")
 def list_chats(username: str = Depends(get_current_username)):
     """
-    returns chats + unread_count for this user
+    Returns chats with:
+      id,type,title,created_by,created_at, unread
     """
     with db() as conn:
         with conn.cursor() as cur:
+            # unread = count of messages from others with id > last_read_id,
+            # excluding deleted_for_all, and excluding hidden-for-me.
             cur.execute(
                 """
-                SELECT c.id, c.type, c.title, c.created_at, c.created_by,
-                       COALESCE(r.last_read_id, 0) as last_read_id
-                FROM chats c
-                JOIN chat_members m ON m.chat_id = c.id
-                LEFT JOIN chat_reads r ON r.chat_id = c.id AND r.username = m.username
-                WHERE m.username=%s
-                ORDER BY c.created_at DESC
+                WITH my_chats AS (
+                    SELECT c.id, c.type, c.title, c.created_by, c.created_at
+                    FROM chats c
+                    JOIN chat_members m ON m.chat_id = c.id
+                    WHERE m.username=%s
+                ),
+                reads AS (
+                    SELECT chat_id, last_read_id
+                    FROM chat_reads
+                    WHERE username=%s
+                )
+                SELECT
+                    mc.id, mc.type, mc.title, mc.created_by, mc.created_at,
+                    COALESCE((
+                        SELECT COUNT(*)
+                        FROM messages msg
+                        LEFT JOIN message_hidden hid
+                          ON hid.message_id = msg.id AND hid.username = %s
+                        WHERE msg.chat_id = mc.id
+                          AND msg.sender <> %s
+                          AND msg.deleted_for_all = FALSE
+                          AND hid.message_id IS NULL
+                          AND msg.id > COALESCE((SELECT r.last_read_id FROM reads r WHERE r.chat_id = mc.id), 0)
+                    ),0) AS unread
+                FROM my_chats mc
+                ORDER BY mc.created_at DESC
                 """,
-                (username,),
+                (username, username, username, username),
             )
             rows = cur.fetchall()
-
-            out = []
-            for c in rows:
-                chat_id = c["id"]
-                last_read = int(c.get("last_read_id") or 0)
-
-                cur.execute(
-                    """
-                    SELECT COUNT(*)::BIGINT AS cnt
-                    FROM messages msg
-                    WHERE msg.chat_id=%s
-                      AND msg.id > %s
-                      AND msg.sender <> %s
-                      AND msg.deleted_for_all = FALSE
-                      AND NOT EXISTS (
-                        SELECT 1 FROM message_hidden h
-                        WHERE h.message_id = msg.id AND h.username=%s
-                      )
-                    """,
-                    (chat_id, last_read, username, username),
-                )
-                unread = int(cur.fetchone()["cnt"])
-                d = dict(c)
-                d["unread"] = unread
-                out.append(d)
-
-    return {"chats": out}
+    return {"chats": rows}
 
 
 @app.post("/api/chats")
@@ -642,7 +636,7 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
         raise HTTPException(status_code=400, detail="Название чата: 1-40 символов.")
 
     chat_id = make_id("c_")
-    now = int(time.time())
+    now = now_ts()
 
     with db() as conn:
         with conn.cursor() as cur:
@@ -654,7 +648,6 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
                 """
                 INSERT INTO chat_members(chat_id, username, joined_at)
                 VALUES (%s,%s,%s)
-                ON CONFLICT (chat_id, username) DO NOTHING
                 """,
                 (chat_id, username, now),
             )
@@ -668,43 +661,48 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
             )
         conn.commit()
 
-    return {"chat": {"id": chat_id, "type": "group", "title": title, "created_at": now, "created_by": username}}
+    return {"chat": {"id": chat_id, "title": title}}
+
+
+def _dm_key(a: str, b: str) -> Tuple[str, str, str]:
+    x, y = sorted([a, b])
+    title = f"dm:{x}|{y}"
+    # deterministic id so DM is unique
+    h = hashlib.sha256(title.encode()).hexdigest()[:16]
+    chat_id = f"dm_{h}"
+    return chat_id, title, y if x == a else x
 
 
 @app.post("/api/chats/dm")
-def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
+def create_dm_chat(data: DMCreateIn, username: str = Depends(get_current_username)):
     other = data.username.strip()
     if not USERNAME_RE.match(other):
-        raise HTTPException(status_code=400, detail="Некорректный username.")
+        raise HTTPException(status_code=400, detail="Bad username")
     if other == username:
-        raise HTTPException(status_code=400, detail="Нельзя создать DM с самим собой.")
+        raise HTTPException(status_code=400, detail="Нельзя создать DM с самим собой")
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM users WHERE username=%s LIMIT 1", (other,))
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (other,))
             if cur.fetchone() is None:
-                raise HTTPException(status_code=404, detail="Пользователь не найден.")
+                raise HTTPException(status_code=404, detail="User not found")
 
-            a, b = sorted([username, other])
-            dm_key = f"dm:{a}|{b}"
+    chat_id, title, other_name = _dm_key(username, other)
+    now = now_ts()
 
-            cur.execute("SELECT id, created_at, created_by FROM chats WHERE type='dm' AND title=%s", (dm_key,))
-            row = cur.fetchone()
-            if row:
-                chat_id = row["id"]
-                created_at = row["created_at"]
-                created_by = row["created_by"]
-            else:
-                chat_id = make_id("d_")
-                created_at = int(time.time())
-                created_by = username
-                cur.execute(
-                    "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    (chat_id, "dm", dm_key, created_by, created_at),
-                )
-
-            now = int(time.time())
-            for u in (username, other):
+    with db() as conn:
+        with conn.cursor() as cur:
+            # create chat if not exists
+            cur.execute(
+                """
+                INSERT INTO chats(id, type, title, created_by, created_at)
+                VALUES (%s,'dm',%s,%s,%s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (chat_id, title, username, now),
+            )
+            # add members
+            for u in {username, other}:
                 cur.execute(
                     """
                     INSERT INTO chat_members(chat_id, username, joined_at)
@@ -721,51 +719,504 @@ def create_dm(data: DMCreateIn, username: str = Depends(get_current_username)):
                     """,
                     (chat_id, u, now),
                 )
-
         conn.commit()
 
-    return {"chat": {"id": chat_id, "type": "dm", "title": f"DM: {other}", "created_at": created_at, "created_by": created_by}}
+    return {"chat": {"id": chat_id, "title": f"DM: {other_name}"}}
+
+
+@app.post("/api/chats/{chat_id}/invite")
+async def invite_to_group(
+    chat_id: str,
+    data: InviteIn,
+    username: str = Depends(get_current_username),
+):
+    other = data.username.strip()
+    if not USERNAME_RE.match(other):
+        raise HTTPException(status_code=400, detail="Bad username")
+    if other == username:
+        raise HTTPException(status_code=400, detail="Нельзя пригласить самого себя")
+
+    with db() as conn:
+        chat = get_chat(conn, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        if chat["type"] != "group":
+            raise HTTPException(status_code=400, detail="Invite only in group chats")
+        if chat["created_by"] != username:
+            raise HTTPException(status_code=403, detail="Only creator can invite")
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE username=%s", (other,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            now = now_ts()
+            cur.execute(
+                """
+                INSERT INTO chat_members(chat_id, username, joined_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, other, now),
+            )
+            cur.execute(
+                """
+                INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                VALUES (%s,%s,0,%s)
+                ON CONFLICT (chat_id, username) DO NOTHING
+                """,
+                (chat_id, other, now),
+            )
+        conn.commit()
+
+    # notify invited user (they will refresh chats)
+    await broadcast_users([other], {"type": "invited", "chat_id": chat_id})
+    return {"ok": True}
 
 
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat(chat_id: str, username: str = Depends(get_current_username)):
+    if chat_id == "general":
+        raise HTTPException(status_code=400, detail="general cannot be deleted")
+
     with db() as conn:
         chat = get_chat(conn, chat_id)
         if not chat:
-            raise HTTPException(status_code=404, detail="Чат не найден.")
+            raise HTTPException(status_code=404, detail="Chat not found")
+
         if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-        if chat_id == "general":
-            raise HTTPException(status_code=400, detail="general нельзя удалить.")
-        if chat["type"] == "group" and chat["created_by"] != username:
-            raise HTTPException(status_code=403, detail="Удалять групповой чат может только создатель.")
-
-        # IMPORTANT: get members BEFORE deleting tables
-        members = list_chat_members(conn, chat_id)
+            raise HTTPException(status_code=403, detail="Not a member")
 
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
-            cur.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
-            cur.execute("DELETE FROM chat_reads WHERE chat_id=%s", (chat_id,))
-            cur.execute("DELETE FROM chat_members WHERE chat_id=%s", (chat_id,))
-            cur.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
-        conn.commit()
+            if chat["type"] == "group":
+                if chat["created_by"] != username:
+                    raise HTTPException(status_code=403, detail="Only creator can delete group")
+                # delete everything
+                cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
+                cur.execute("DELETE FROM message_delivered WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
+                cur.execute("DELETE FROM chat_reads WHERE chat_id=%s", (chat_id,))
+                cur.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
+                cur.execute("DELETE FROM chat_members WHERE chat_id=%s", (chat_id,))
+                cur.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
+                conn.commit()
 
-    # broadcast to members (chat no longer exists)
-    await broadcast_to_users(members, {"type": "chat_deleted", "chat_id": chat_id})
+                await broadcast_chat(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
+                return {"ok": True}
+
+            # dm: remove membership for current user (soft-delete for user)
+            cur.execute("DELETE FROM chat_members WHERE chat_id=%s AND username=%s", (chat_id, username))
+            cur.execute("DELETE FROM chat_reads WHERE chat_id=%s AND username=%s", (chat_id, username))
+            conn.commit()
+
+            # if no members left -> fully delete
+            with conn.cursor() as cur2:
+                cur2.execute("SELECT COUNT(*) AS n FROM chat_members WHERE chat_id=%s", (chat_id,))
+                n = int(cur2.fetchone()["n"])
+                if n == 0:
+                    cur2.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
+                    cur2.execute("DELETE FROM message_delivered WHERE message_id IN (SELECT id FROM messages WHERE chat_id=%s)", (chat_id,))
+                    cur2.execute("DELETE FROM chat_reads WHERE chat_id=%s", (chat_id,))
+                    cur2.execute("DELETE FROM messages WHERE chat_id=%s", (chat_id,))
+                    cur2.execute("DELETE FROM chats WHERE id=%s", (chat_id,))
+                    conn.commit()
+
+    # notify remaining member(s) to refresh
+    await broadcast_chat(chat_id, {"type": "chat_deleted", "chat_id": chat_id})
     return {"ok": True}
 
 
 # =========================
-# Read marker
+# WebSocket: global user channel
 # =========================
-@app.post("/api/chats/{chat_id}/read")
-def mark_read(chat_id: str, last_id: int = Query(..., ge=0), username: str = Depends(get_current_username)):
-    now = int(time.time())
+@app.websocket("/ws/user")
+async def ws_user(ws: WebSocket):
+    """
+    Client connects with ?token=...
+    Receives:
+      - message
+      - message_edited
+      - message_deleted_all
+      - chat_deleted
+      - typing
+      - delivered
+      - read
+      - invited
+    Sends:
+      - typing {chat_id,is_typing}
+      - delivered {chat_id,message_id}
+    """
+    token = (ws.query_params.get("token") or "").strip()
+    if not token:
+        await ws.close(code=4401)
+        return
+
+    try:
+        username = jwt_verify(token)["sub"]
+    except HTTPException:
+        await ws.close(code=4401)
+        return
+
+    await ws.accept()
+    _ws_add(username, ws)
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+
+            t = data.get("type")
+            if t == "typing":
+                chat_id = (data.get("chat_id") or "").strip()
+                is_typing = bool(data.get("is_typing"))
+                if not chat_id:
+                    continue
+                with db() as conn:
+                    if not is_member(conn, chat_id, username):
+                        continue
+                await broadcast_chat(chat_id, {
+                    "type": "typing",
+                    "chat_id": chat_id,
+                    "username": username,
+                    "is_typing": is_typing,
+                })
+
+            elif t == "delivered":
+                chat_id = (data.get("chat_id") or "").strip()
+                mid = int(data.get("message_id") or 0)
+                if not chat_id or not mid:
+                    continue
+                with db() as conn:
+                    if not is_member(conn, chat_id, username):
+                        continue
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO message_delivered(message_id, username, delivered_at)
+                            VALUES (%s,%s,%s)
+                            ON CONFLICT (message_id, username) DO NOTHING
+                            """,
+                            (mid, username, now_ts()),
+                        )
+                    conn.commit()
+
+                # rebroadcast so sender can update ✓✓
+                await broadcast_chat(chat_id, {
+                    "type": "delivered",
+                    "chat_id": chat_id,
+                    "message_id": mid,
+                    "username": username,
+                })
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _ws_remove(username, ws)
+
+
+# =========================
+# Messages API
+# =========================
+@app.get("/api/messages")
+def list_messages(
+    chat_id: str = Query(...),
+    username: str = Depends(get_current_username),
+):
+    chat_id = (chat_id or "").strip()
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id required")
+
     with db() as conn:
         if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
+            raise HTTPException(status_code=403, detail="Not a member")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  m.id, m.chat_id, m.sender, m.text, m.created_at,
+                  m.updated_at, m.is_edited, m.deleted_for_all,
+                  m.media_kind, m.media_url, m.media_mime, m.media_name
+                FROM messages m
+                LEFT JOIN message_hidden hid
+                  ON hid.message_id = m.id AND hid.username = %s
+                WHERE m.chat_id = %s
+                  AND hid.message_id IS NULL
+                ORDER BY m.id ASC
+                LIMIT 500
+                """,
+                (username, chat_id),
+            )
+            rows = cur.fetchall()
+
+    return {"messages": rows}
+
+
+@app.post("/api/messages")
+async def create_text_message(
+    data: MessageCreateIn,
+    username: str = Depends(get_current_username),
+):
+    chat_id = (data.chat_id or "").strip()
+    text = (data.text or "").strip()
+
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id required")
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="text too long (max 2000)")
+
+    ts = now_ts()
+
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO messages(chat_id, sender, text, created_at)
+                VALUES (%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (chat_id, username, text, ts),
+            )
+            msg_id = int(cur.fetchone()["id"])
+
+            # sender delivered to self (for completeness)
+            cur.execute(
+                """
+                INSERT INTO message_delivered(message_id, username, delivered_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (msg_id, username, ts),
+            )
+
+        conn.commit()
+
+    payload = {
+        "type": "message",
+        "id": msg_id,
+        "chat_id": chat_id,
+        "sender": username,
+        "text": text,
+        "created_at": ts,
+        "is_edited": False,
+        "deleted_for_all": False,
+        "media_kind": None,
+        "media_url": None,
+        "media_mime": None,
+        "media_name": None,
+    }
+    await broadcast_chat(chat_id, payload)
+    return {"ok": True, "id": msg_id}
+
+
+@app.patch("/api/messages/{message_id}")
+async def edit_message(
+    message_id: int,
+    data: MessageEditIn,
+    username: str = Depends(get_current_username),
+):
+    new_text = (data.text or "").strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="text required")
+    if len(new_text) > 2000:
+        raise HTTPException(status_code=400, detail="text too long (max 2000)")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id, sender, deleted_for_all FROM messages WHERE id=%s", (message_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found")
+
+            chat_id = row["chat_id"]
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member")
+            if row["sender"] != username:
+                raise HTTPException(status_code=403, detail="Only sender can edit")
+            if row["deleted_for_all"]:
+                raise HTTPException(status_code=400, detail="Message deleted")
+
+            cur.execute(
+                """
+                UPDATE messages
+                SET text=%s, is_edited=TRUE, updated_at=%s
+                WHERE id=%s
+                """,
+                (new_text, now_ts(), message_id),
+            )
+        conn.commit()
+
+    await broadcast_chat(chat_id, {
+        "type": "message_edited",
+        "chat_id": chat_id,
+        "id": message_id,
+        "text": new_text,
+    })
+    return {"ok": True}
+
+
+@app.delete("/api/messages/{message_id}")
+async def delete_message(
+    message_id: int,
+    scope: str = Query("me"),  # me | all
+    username: str = Depends(get_current_username),
+):
+    scope = (scope or "me").lower().strip()
+    if scope not in ("me", "all"):
+        raise HTTPException(status_code=400, detail="scope must be me|all")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id, sender FROM messages WHERE id=%s", (message_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found")
+            chat_id = row["chat_id"]
+
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member")
+
+            if scope == "me":
+                cur.execute(
+                    """
+                    INSERT INTO message_hidden(message_id, username, hidden_at)
+                    VALUES (%s,%s,%s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (message_id, username, now_ts()),
+                )
+                conn.commit()
+                return {"ok": True}
+
+            # scope == all
+            if row["sender"] != username:
+                raise HTTPException(status_code=403, detail="Only sender can delete for all")
+
+            cur.execute(
+                "UPDATE messages SET deleted_for_all=TRUE, updated_at=%s WHERE id=%s",
+                (now_ts(), message_id),
+            )
+        conn.commit()
+
+    await broadcast_chat(chat_id, {
+        "type": "message_deleted_all",
+        "chat_id": chat_id,
+        "id": message_id,
+    })
+    return {"ok": True}
+
+
+# =========================
+# Upload media (image/video/audio)
+# =========================
+@app.post("/api/upload")
+async def upload_media(
+    chat_id: str = Form(...),
+    text: str = Form(""),
+    file: UploadFile = File(...),
+    username: str = Depends(get_current_username),
+):
+    chat_id = (chat_id or "").strip()
+    caption = (text or "").strip()
+
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id required")
+
+    if len(caption) > 2000:
+        raise HTTPException(status_code=400, detail="text too long (max 2000)")
+
+    content_type = (file.content_type or "").lower().strip()
+    kind = media_kind_from_mime(content_type)
+    if not kind:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}")
+
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
+
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
+
+    # upload to Cloudinary
+    try:
+        res = cloudinary.uploader.upload(
+            data,
+            folder="messenger/uploads",
+            resource_type=cloudinary_resource_type(kind),
+            use_filename=True,
+            unique_filename=True,
+        )
+        url = res.get("secure_url") or res.get("url")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
+
+    ts = now_ts()
+    media_name = (file.filename or "").strip()[:120]
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (chat_id, username, caption, ts, kind, url, content_type, media_name),
+            )
+            msg_id = int(cur.fetchone()["id"])
+
+            cur.execute(
+                """
+                INSERT INTO message_delivered(message_id, username, delivered_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (msg_id, username, ts),
+            )
+        conn.commit()
+
+    payload = {
+        "type": "message",
+        "id": msg_id,
+        "chat_id": chat_id,
+        "sender": username,
+        "text": caption,
+        "created_at": ts,
+        "is_edited": False,
+        "deleted_for_all": False,
+        "media_kind": kind,
+        "media_url": url,
+        "media_mime": content_type,
+        "media_name": media_name,
+    }
+    await broadcast_chat(chat_id, payload)
+    return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
+
+
+# =========================
+# Read markers (✓✓ read)
+# =========================
+@app.post("/api/chats/{chat_id}/read")
+async def mark_read(
+    chat_id: str,
+    last_id: int = Query(...),
+    username: str = Depends(get_current_username),
+):
+    chat_id = (chat_id or "").strip()
+    last_id = int(last_id or 0)
+    if not chat_id or last_id <= 0:
+        raise HTTPException(status_code=400, detail="chat_id + last_id required")
+
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -775,304 +1226,22 @@ def mark_read(chat_id: str, last_id: int = Query(..., ge=0), username: str = Dep
                 DO UPDATE SET last_read_id = GREATEST(chat_reads.last_read_id, EXCLUDED.last_read_id),
                               updated_at = EXCLUDED.updated_at
                 """,
-                (chat_id, username, int(last_id), now),
+                (chat_id, username, last_id, now_ts()),
             )
         conn.commit()
+
+    await broadcast_chat(chat_id, {
+        "type": "read",
+        "chat_id": chat_id,
+        "username": username,
+        "last_read_id": last_id,
+    })
     return {"ok": True}
 
 
 # =========================
-# Messages API
+# Health
 # =========================
-@app.get("/api/messages")
-def list_messages(chat_id: str, username: str = Depends(get_current_username)):
-    with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, chat_id, sender, text, created_at,
-                       updated_at, is_edited,
-                       deleted_for_all, deleted_at, deleted_by,
-                       media_kind, media_url, media_mime, media_name
-                FROM messages
-                WHERE chat_id=%s
-                  AND NOT EXISTS (
-                    SELECT 1 FROM message_hidden h
-                    WHERE h.message_id = messages.id AND h.username=%s
-                  )
-                ORDER BY id DESC
-                LIMIT 200
-                """,
-                (chat_id, username),
-            )
-            rows = cur.fetchall()
-
-    return {"chat_id": chat_id, "messages": list(reversed(rows))}
-
-
-@app.post("/api/messages")
-async def create_text_message(data: MsgIn, username: str = Depends(get_current_username)):
-    chat_id = (data.chat_id or "").strip()
-    text = (data.text or "").strip()
-
-    if not text or len(text) > 2000:
-        raise HTTPException(status_code=400, detail="Текст: 1-2000 символов.")
-
-    with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-        ts = int(time.time())
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
-                                     deleted_for_all, deleted_at, deleted_by,
-                                     media_kind, media_url, media_mime, media_name)
-                VALUES(%s,%s,%s,%s,NULL,FALSE,FALSE,NULL,NULL,NULL,NULL,NULL,NULL)
-                RETURNING id
-                """,
-                (chat_id, username, text, ts),
-            )
-            msg_id = cur.fetchone()["id"]
-        conn.commit()
-
-    event = {
-        "type": "message",
-        "id": msg_id,
-        "chat_id": chat_id,
-        "sender": username,
-        "text": text,
-        "created_at": ts,
-        "updated_at": None,
-        "is_edited": False,
-        "deleted_for_all": False,
-        "deleted_at": None,
-        "deleted_by": None,
-        "media_kind": None,
-        "media_url": None,
-        "media_mime": None,
-        "media_name": None,
-    }
-    await broadcast_to_chat(chat_id, event)
-    return {"message": event}
-
-
-@app.patch("/api/messages/{message_id}")
-async def edit_message(message_id: int, data: MsgEditIn, username: str = Depends(get_current_username)):
-    new_text = (data.text or "").strip()
-    if len(new_text) > 2000:
-        raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
-
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, chat_id, sender, deleted_for_all
-                FROM messages
-                WHERE id=%s
-                """,
-                (message_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Сообщение не найдено.")
-            if row["deleted_for_all"]:
-                raise HTTPException(status_code=400, detail="Сообщение уже удалено у всех.")
-            if row["sender"] != username:
-                raise HTTPException(status_code=403, detail="Можно редактировать только свои сообщения.")
-
-            chat_id = row["chat_id"]
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-            ts = int(time.time())
-            cur.execute(
-                """
-                UPDATE messages
-                SET text=%s, updated_at=%s, is_edited=TRUE
-                WHERE id=%s
-                """,
-                (new_text, ts, message_id),
-            )
-        conn.commit()
-
-    event = {
-        "type": "message_edited",
-        "id": message_id,
-        "chat_id": chat_id,
-        "text": new_text,
-        "updated_at": ts,
-        "is_edited": True,
-    }
-    await broadcast_to_chat(chat_id, event)
-    return {"ok": True, "message": event}
-
-
-@app.delete("/api/messages/{message_id}")
-async def delete_message(
-    message_id: int,
-    scope: str = Query("me", pattern="^(me|all)$"),
-    username: str = Depends(get_current_username),
-):
-    """
-    scope=me  -> hide only for this user (can be any message in chat)
-    scope=all -> delete_for_all (only if sender==username)
-    """
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, chat_id, sender, deleted_for_all FROM messages WHERE id=%s", (message_id,))
-            msg = cur.fetchone()
-            if not msg:
-                raise HTTPException(status_code=404, detail="Сообщение не найдено.")
-
-            chat_id = msg["chat_id"]
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-            now = int(time.time())
-
-            if scope == "me":
-                cur.execute(
-                    """
-                    INSERT INTO message_hidden(message_id, username, hidden_at)
-                    VALUES (%s,%s,%s)
-                    ON CONFLICT (message_id, username) DO NOTHING
-                    """,
-                    (message_id, username, now),
-                )
-                conn.commit()
-                return {"ok": True, "scope": "me"}
-
-            # scope == "all"
-            if msg["deleted_for_all"]:
-                return {"ok": True, "scope": "all"}  # already
-            if msg["sender"] != username:
-                raise HTTPException(status_code=403, detail="Удалить у всех можно только свои сообщения.")
-
-            cur.execute(
-                """
-                UPDATE messages
-                SET deleted_for_all=TRUE, deleted_at=%s, deleted_by=%s,
-                    media_url=NULL, media_mime=NULL, media_name=NULL, media_kind=NULL,
-                    text='(deleted)'
-                WHERE id=%s
-                """,
-                (now, username, message_id),
-            )
-        conn.commit()
-
-    event = {
-        "type": "message_deleted_all",
-        "id": message_id,
-        "chat_id": chat_id,
-        "deleted_at": now,
-        "deleted_by": username,
-    }
-    await broadcast_to_chat(chat_id, event)
-    return {"ok": True, "scope": "all"}
-
-
-@app.post("/api/upload")
-async def upload(
-    chat_id: str = Form(...),
-    text: str = Form(""),
-    file: UploadFile = File(...),
-    username: str = Depends(get_current_username),
-):
-    text = (text or "").strip()
-    if len(text) > 2000:
-        raise HTTPException(status_code=400, detail="Текст: максимум 2000 символов.")
-
-    with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому чату.")
-
-    mime = (file.content_type or "").lower().strip()
-    kind = media_kind_from_mime(mime)
-    if not kind:
-        raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {mime or 'unknown'}")
-
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Пустой файл.")
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail=f"Слишком большой файл. Лимит: {MAX_UPLOAD_MB} MB")
-
-    folder = "mini_messenger"
-    public_id = f"{folder}/{chat_id}/{int(time.time())}_{secrets.token_urlsafe(10)}"
-
-    try:
-        uploaded = cloudinary.uploader.upload(
-            data,
-            resource_type="auto",
-            public_id=public_id,
-            overwrite=False,
-            unique_filename=True,
-        )
-        media_url = uploaded.get("secure_url") or uploaded.get("url")
-        if not media_url:
-            raise RuntimeError("Cloudinary returned no url")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
-
-    ts = int(time.time())
-
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO messages(chat_id, sender, text, created_at, updated_at, is_edited,
-                                     deleted_for_all, deleted_at, deleted_by,
-                                     media_kind, media_url, media_mime, media_name)
-                VALUES (%s,%s,%s,%s,NULL,FALSE,FALSE,NULL,NULL,%s,%s,%s,%s)
-                RETURNING id
-                """,
-                (
-                    chat_id,
-                    username,
-                    text,
-                    ts,
-                    kind,
-                    media_url,
-                    mime,
-                    (file.filename or "")[:200],
-                ),
-            )
-            msg_id = cur.fetchone()["id"]
-        conn.commit()
-
-    event = {
-        "type": "message",
-        "id": msg_id,
-        "chat_id": chat_id,
-        "sender": username,
-        "text": text,
-        "created_at": ts,
-        "updated_at": None,
-        "is_edited": False,
-        "deleted_for_all": False,
-        "deleted_at": None,
-        "deleted_by": None,
-        "media_kind": kind,
-        "media_url": media_url,
-        "media_mime": mime,
-        "media_name": (file.filename or "")[:200],
-    }
-
-    await broadcast_to_chat(chat_id, event)
-    return {"message": event}
-
-
-# =========================
-# Frontend serve — LAST
-# =========================
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
-else:
-    @app.get("/")
-    def _no_frontend():
-        return {"error": "frontend folder not found", "expected_path": FRONTEND_DIR}
+@app.get("/api/health")
+def health():
+    return {"ok": True}
