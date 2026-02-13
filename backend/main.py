@@ -302,10 +302,10 @@ def ensure_general_for(username: str) -> None:
             cur.execute(
                 """
                 INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
-                VALUES (%s,%s,0,%s)
+                VALUES (%s,%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, "member", int(time.time())),
+                ("general", username, 0, int(time.time())),
             )
         conn.commit()
 
