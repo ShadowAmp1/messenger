@@ -1237,10 +1237,12 @@ def list_messages(
                   m.id, m.chat_id, m.sender, m.text, m.created_at,
                   m.updated_at, m.is_edited, m.deleted_for_all,
                   m.media_kind, m.media_url, m.media_mime, m.media_name,
+                  u.avatar_url AS sender_avatar_url,
                   m.reply_to_id,
                   r.sender AS reply_sender,
                   r.text AS reply_text
                 FROM messages m
+                LEFT JOIN users u ON u.username = m.sender
                 LEFT JOIN messages r ON r.id = m.reply_to_id
                 LEFT JOIN message_hidden hid
                   ON hid.message_id = m.id AND hid.username = %s
@@ -1290,10 +1292,15 @@ async def create_text_message(
     ts = now_ts()
 
     with db() as conn:
+        sender_avatar_url = None
         if not is_member(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Not a member")
 
         with conn.cursor() as cur:
+            cur.execute("SELECT avatar_url FROM users WHERE username=%s", (username,))
+            user_row = cur.fetchone()
+            sender_avatar_url = user_row["avatar_url"] if user_row else None
+
             reply_sender = None
             reply_text = None
             if reply_to_id > 0:
@@ -1331,6 +1338,7 @@ async def create_text_message(
         "id": msg_id,
         "chat_id": chat_id,
         "sender": username,
+        "sender_avatar_url": sender_avatar_url,
         "text": text,
         "created_at": ts,
         "is_edited": False,
@@ -1551,7 +1559,12 @@ async def upload_media(
     media_name = (file.filename or "").strip()[:120]
 
     with db() as conn:
+        sender_avatar_url = None
         with conn.cursor() as cur:
+            cur.execute("SELECT avatar_url FROM users WHERE username=%s", (username,))
+            user_row = cur.fetchone()
+            sender_avatar_url = user_row["avatar_url"] if user_row else None
+
             cur.execute(
                 """
                 INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
@@ -1577,6 +1590,7 @@ async def upload_media(
         "id": msg_id,
         "chat_id": chat_id,
         "sender": username,
+        "sender_avatar_url": sender_avatar_url,
         "text": caption,
         "created_at": ts,
         "is_edited": False,
