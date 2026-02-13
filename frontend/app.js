@@ -8,6 +8,26 @@
   let avatarUrl = localStorage.getItem("avatar_url") || "";
   let replyTo = null;
 
+  const THEME_KEY = "theme";
+  function applyTheme(theme){
+    const root = document.documentElement;
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    root.setAttribute("data-theme", nextTheme);
+    localStorage.setItem(THEME_KEY, nextTheme);
+    const btn = $("btnThemeToggle");
+    if (btn) btn.textContent = nextTheme === "dark" ? "☀️ Тема" : "🌙 Тема";
+  }
+  function initTheme(){
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "dark" || saved === "light") return applyTheme(saved);
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    applyTheme(prefersDark ? "dark" : "light");
+  }
+  function toggleTheme(){
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    applyTheme(current === "dark" ? "light" : "dark");
+  }
+
   // GLOBAL WS
   let ws = null;
 
@@ -1454,6 +1474,7 @@
   });
   window.addEventListener("orientationchange", syncSidebarTopOffset);
 
+  $("btnThemeToggle").onclick = () => toggleTheme();
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
   $("btnProfile").onclick = () => openProfile();
@@ -1543,6 +1564,7 @@
   // Bootstrap
   // =========================
   syncSidebarTopOffset();
+  initTheme();
   setWhoami();
   requestNotificationPermissionIfNeeded();
 
