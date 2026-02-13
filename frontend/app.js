@@ -7,6 +7,11 @@
   let me = localStorage.getItem("username") || "";
   let avatarUrl = localStorage.getItem("avatar_url") || "";
   let replyTo = null;
+  let displayName = localStorage.getItem("display_name") || "";
+  let profileBio = localStorage.getItem("profile_bio") || "";
+  let stories = [];
+
+  const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
   const THEME_KEY = "theme";
   function applyTheme(theme){
@@ -437,6 +442,7 @@
 
       connectWS_GLOBAL();
       await refreshChats(true);
+      loadStories().catch(()=>{});
     }catch(e){
       showAuthError(String(e.message || e));
     }finally{
@@ -450,7 +456,11 @@
     if (!token) return;
     const data = await api("/api/me");
     avatarUrl = data.avatar_url || "";
+    displayName = data.display_name || "";
+    profileBio = data.bio || "";
     localStorage.setItem("avatar_url", avatarUrl || "");
+    localStorage.setItem("display_name", displayName || "");
+    localStorage.setItem("profile_bio", profileBio || "");
   }
 
   // =========================
@@ -622,9 +632,15 @@
       }
 
 
-      if (data.type === "reaction_added" || data.type === "reaction_removed" || data.type === "pin_added" || data.type === "pin_removed"){
+      if (data.type === "reaction_added" || data.type === "reaction_removed"){
         if (data.chat_id === activeChatId){
-          loadHistory().catch(()=>{});
+          applyReactionEvent(data.message_id, data.emoji, data.username, data.type === "reaction_added");
+        }
+        return;
+      }
+
+      if (data.type === "pin_added" || data.type === "pin_removed"){
+        if (data.chat_id === activeChatId){
           loadPins().catch(()=>{});
         }
         return;
@@ -687,8 +703,11 @@
   function openProfile(){
     if (!token) return openAuth("login");
     $("profileHint").textContent = `@${me}`;
+    $("profileDisplayName").value = displayName || "";
+    $("profileBio").value = profileBio || "";
     profile.overlay.classList.add("open");
     profile.overlay.setAttribute("aria-hidden","false");
+    loadStories().catch(()=>{});
   }
   function closeProfile(){
     profile.overlay.classList.remove("open");
@@ -877,11 +896,16 @@
       const title = computeChatTitle(c);
       const t1 = document.createElement("div");
       t1.className = "title";
-      t1.textContent = title;
+      t1.textContent = title.replace(/^ЛС:\s*/, "");
 
       const t2 = document.createElement("div");
       t2.className = "sub";
-      t2.textContent = c.id;
+      if (c.last_text){
+        const sender = c.last_sender === me ? "Ты" : c.last_sender;
+        t2.textContent = `${sender}: ${String(c.last_text).slice(0,44)}`;
+      } else {
+        t2.textContent = "Нет сообщений";
+      }
 
       left.appendChild(t1);
       left.appendChild(t2);
@@ -891,23 +915,18 @@
       right.style.gap = "8px";
       right.style.alignItems = "center";
 
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = (c.type === "dm") ? "ЛС" : "ГРУППА";
-      right.appendChild(badge);
+      if (c.unread && Number(c.unread) > 0 && c.id !== activeChatId){
+        const u = document.createElement("span");
+        u.className = "unread";
+        u.textContent = String(c.unread);
+        right.appendChild(u);
+      }
 
       if (isChatMuted(c.id)){
         const m = document.createElement("span");
         m.className = "badge";
         m.textContent = "🔕";
         right.appendChild(m);
-      }
-
-      if (c.unread && Number(c.unread) > 0 && c.id !== activeChatId){
-        const u = document.createElement("span");
-        u.className = "unread";
-        u.textContent = String(c.unread);
-        right.appendChild(u);
       }
 
       if (canDeleteChat(c)){
@@ -1025,6 +1044,7 @@
     div.dataset.msgId = String(m.id || "");
     div.dataset.sender = String(m.sender || "");
     div.dataset.deletedForAll = String(!!m.deleted_for_all);
+    div.dataset.myReactions = JSON.stringify(m.my_reactions || []);
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -1061,8 +1081,10 @@
       if (m.reply_to_id){
         const rep = document.createElement("div");
         rep.className = "reply-preview";
+        rep.dataset.replyToId = String(m.reply_to_id);
         const t = (m.reply_text || "").trim();
         rep.textContent = `↪ ${m.reply_sender || "user"}: ${t ? t.slice(0,80) : "[media]"}`;
+        rep.onclick = () => jumpToMessage(Number(m.reply_to_id));
         div.appendChild(rep);
       }
 
@@ -1116,14 +1138,16 @@
     const reacts = document.createElement("div");
     reacts.className = "reactions";
     reacts.dataset.role = "reactions";
-    const rmap = m.reactions || {};
-    for (const [emoji, cnt] of Object.entries(rmap)){
-      const rb = document.createElement("button");
-      rb.className = "react";
-      rb.textContent = `${emoji} ${cnt}`;
-      rb.onclick = async (e) => { e.stopPropagation(); await addReaction(m.id, emoji); };
-      reacts.appendChild(rb);
-    }
+    renderReactions(reacts, m.id, m.reactions || {}, m.my_reactions || []);
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "react add-react";
+    addBtn.textContent = "➕";
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      openEmojiPicker(m.id, addBtn);
+    };
+    reacts.appendChild(addBtn);
     div.appendChild(reacts);
 
     // context menu
@@ -1159,6 +1183,53 @@
       maybeMarkRead();
     }
     updateToBottom();
+  }
+
+  function renderReactions(holder, messageId, reactionMap, myReactions){
+    holder.querySelectorAll(".react[data-emoji]").forEach(n => n.remove());
+    for (const [emoji, cnt] of Object.entries(reactionMap || {})){
+      const rb = document.createElement("button");
+      rb.className = "react";
+      rb.dataset.emoji = emoji;
+      if ((myReactions || []).includes(emoji)) rb.classList.add("mine");
+      rb.textContent = `${emoji} ${cnt}`;
+      rb.onclick = async (e) => {
+        e.stopPropagation();
+        await toggleReaction(messageId, emoji);
+      };
+      holder.insertBefore(rb, holder.querySelector(".add-react"));
+    }
+  }
+
+  function openEmojiPicker(messageId, anchor){
+    const existing = document.querySelector(".emoji-picker");
+    if (existing) existing.remove();
+    const picker = document.createElement("div");
+    picker.className = "emoji-picker";
+    for (const em of REACTION_EMOJIS){
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = em;
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        picker.remove();
+        await toggleReaction(messageId, em);
+      };
+      picker.appendChild(b);
+    }
+    document.body.appendChild(picker);
+    const r = anchor.getBoundingClientRect();
+    picker.style.left = `${Math.max(8, r.left)}px`;
+    picker.style.top = `${Math.max(8, r.top - 52)}px`;
+    setTimeout(()=>{
+      const close = (ev)=>{
+        if (!picker.contains(ev.target)){
+          picker.remove();
+          document.removeEventListener("click", close);
+        }
+      };
+      document.addEventListener("click", close);
+    }, 0);
   }
 
   function applyEdited(id, text, isEdited){
@@ -1281,6 +1352,132 @@
     try{
       await api(`/api/messages/${messageId}/reactions`, "POST", { emoji });
     }catch(e){ addSystem("❌ "+(e.message||e)); }
+  }
+
+  async function removeReaction(messageId, emoji){
+    try{
+      await api(`/api/messages/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`, "DELETE");
+    }catch(e){ addSystem("❌ "+(e.message||e)); }
+  }
+
+  async function toggleReaction(messageId, emoji){
+    const el = msgElById.get(Number(messageId));
+    const mine = JSON.parse(el?.dataset.myReactions || "[]");
+    if (mine.includes(emoji)) return removeReaction(messageId, emoji);
+    return addReaction(messageId, emoji);
+  }
+
+  function applyReactionEvent(messageId, emoji, username, added){
+    const el = msgElById.get(Number(messageId));
+    if (!el) return;
+    const holder = el.querySelector('[data-role="reactions"]');
+    if (!holder) return;
+    const mine = new Set(JSON.parse(el.dataset.myReactions || "[]"));
+    if (username === me){
+      if (added) mine.add(emoji);
+      else mine.delete(emoji);
+      el.dataset.myReactions = JSON.stringify(Array.from(mine));
+    }
+
+    const current = {};
+    holder.querySelectorAll(".react[data-emoji]").forEach(btn => {
+      const em = btn.dataset.emoji;
+      const cnt = Number((btn.textContent || "").split(" ").pop() || 0);
+      current[em] = cnt;
+    });
+    current[emoji] = Math.max(0, (current[emoji] || 0) + (added ? 1 : -1));
+    if (!current[emoji]) delete current[emoji];
+    renderReactions(holder, messageId, current, Array.from(mine));
+  }
+
+  function jumpToMessage(messageId){
+    const target = msgElById.get(Number(messageId));
+    if (!target) return addSystem("⚠️ Оригинал сообщения не найден");
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("flash");
+    setTimeout(()=> target.classList.remove("flash"), 1400);
+  }
+
+  async function saveProfile(){
+    try{
+      const display_name = $("profileDisplayName").value.trim();
+      const bio = $("profileBio").value.trim();
+      await api("/api/profile", "PATCH", { display_name, bio });
+      displayName = display_name;
+      profileBio = bio;
+      localStorage.setItem("display_name", displayName);
+      localStorage.setItem("profile_bio", profileBio);
+      $("profileHint").textContent = "✅ Профиль сохранен";
+    }catch(e){
+      $("profileHint").textContent = "❌ " + (e.message || e);
+    }
+  }
+
+  async function uploadStory(){
+    const f = $("storyFile").files && $("storyFile").files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append("file", f);
+    fd.append("caption", $("storyCaption").value.trim());
+    try{
+      const res = await fetch("/api/stories", { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: fd });
+      const raw = await res.text();
+      const data = JSON.parse(raw || "{}");
+      if (!res.ok) throw new Error(data.detail || raw);
+      $("storyFile").value = "";
+      $("storyCaption").value = "";
+      $("profileHint").textContent = "✅ История опубликована";
+      await loadStories();
+    }catch(e){
+      $("profileHint").textContent = "❌ " + (e.message || e);
+    }
+  }
+
+  async function loadStories(){
+    if (!token) return;
+    const data = await api("/api/stories");
+    stories = data.stories || [];
+    renderStories();
+    const mine = stories.filter(s => s.username === me);
+    const box = $("myStories");
+    box.innerHTML = "";
+    if (!mine.length){
+      box.textContent = "У тебя пока нет историй.";
+      return;
+    }
+    for (const s of mine){
+      const row = document.createElement("div");
+      const t = document.createElement("span");
+      t.textContent = `${new Date((s.created_at||0)*1000).toLocaleTimeString()} • ${s.caption || "без подписи"}`;
+      const del = document.createElement("button");
+      del.className = "btn";
+      del.style.marginLeft = "6px";
+      del.textContent = "Удалить";
+      del.onclick = async ()=>{
+        await api(`/api/stories/${s.id}`, "DELETE");
+        await loadStories();
+      };
+      row.appendChild(t);
+      row.appendChild(del);
+      box.appendChild(row);
+    }
+  }
+
+  function renderStories(){
+    const bar = $("storiesBar");
+    if (!stories.length){ bar.innerHTML = ""; return; }
+    const grouped = new Map();
+    for (const s of stories){
+      if (!grouped.has(s.username)) grouped.set(s.username, s);
+    }
+    bar.innerHTML = "";
+    for (const [username, s] of grouped.entries()){
+      const item = document.createElement("button");
+      item.className = "story-item";
+      item.innerHTML = `<img src="${s.avatar_url || ''}" alt="${username}" /><span>${s.display_name || username}</span>`;
+      item.onclick = () => window.open(s.media_url, "_blank");
+      bar.appendChild(item);
+    }
   }
 
   async function togglePin(messageId){
@@ -1442,7 +1639,7 @@
   }
 
   ctx.reply.onclick = () => { if (ctx.msgEl) { setReply({ id: ctx.msgId, sender: ctx.sender, text: (ctx.msgEl.querySelector('[data-role="body"]')?.textContent||"") }); closeCtx(); } };
-  ctx.react.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) addReaction(id, "👍"); };
+  ctx.react.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) toggleReaction(id, "👍"); };
   ctx.pin.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) togglePin(id); };
   ctx.edit.onclick = () => { if (ctx.msgEl) startInlineEdit(ctx.msgEl); };
   ctx.delMe.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) deleteForMe(id); };
@@ -1541,6 +1738,8 @@
   $("btnCloseProfile").onclick = () => closeProfile();
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
   $("btnUploadAvatar").onclick = () => uploadAvatar();
+  $("btnSaveProfile").onclick = () => saveProfile();
+  $("btnUploadStory").onclick = () => uploadStory();
 
   $("btnCloseVoicePreview").onclick = () => { closeVoicePreview(); clearPreview(); };
   $("btnCancelVoiceNow").onclick = () => { closeVoicePreview(); clearPreview(); };
@@ -1608,12 +1807,17 @@
       .then(async data => {
         me = data.username;
         avatarUrl = data.avatar_url || "";
+        displayName = data.display_name || "";
+        profileBio = data.bio || "";
         localStorage.setItem("username", me);
         localStorage.setItem("avatar_url", avatarUrl || "");
+        localStorage.setItem("display_name", displayName || "");
+        localStorage.setItem("profile_bio", profileBio || "");
         setWhoami();
 
         connectWS_GLOBAL();
         await refreshChats(true);
+        loadStories().catch(()=>{});
       })
       .catch(() => {
         token = "";
