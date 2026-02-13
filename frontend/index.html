@@ -65,6 +65,7 @@
         </aside>
 
         <div class="chat">
+          <div id="storiesBar" class="stories-bar"></div>
           <div id="pinsBar" class="small pins-bar is-hidden"></div>
           <div class="msgs" id="msgs"></div>
           <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
@@ -136,9 +137,21 @@
         <button class="xbtn" id="btnCloseProfile" type="button">✕</button>
       </div>
       <div class="sheet-body">
+        <div class="small">Имя</div>
+        <input id="profileDisplayName" placeholder="Как тебя показывать" />
+        <div class="small">О себе</div>
+        <textarea id="profileBio" placeholder="Немного о себе" rows="3"></textarea>
+        <button id="btnSaveProfile" class="btn" type="button">Сохранить профиль</button>
+        <div class="sep"></div>
         <div class="small">Аватар</div>
         <input id="avatarFile" type="file" accept="image/*"/>
         <button id="btnUploadAvatar" class="btn" type="button">Загрузить</button>
+        <div class="sep"></div>
+        <div class="small">Истории (24ч)</div>
+        <input id="storyFile" type="file" accept="image/*,video/*"/>
+        <input id="storyCaption" placeholder="Подпись к истории" maxlength="160"/>
+        <button id="btnUploadStory" class="btn" type="button">Выложить историю</button>
+        <div id="myStories" class="small"></div>
         <div class="small" id="profileHint">—</div>
       </div>
     </div>
