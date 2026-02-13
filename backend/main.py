@@ -50,6 +50,7 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 # =========================
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
+REFRESH_TTL_SECONDS = int(os.environ.get("REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 120)))  # 120 days
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
@@ -76,6 +77,9 @@ ALLOWED_AUDIO_MIME = {
 }
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
+RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
 
 
 # =========================
@@ -143,6 +147,7 @@ def init_db() -> None:
                 CREATE TABLE IF NOT EXISTS chat_members (
                     chat_id TEXT NOT NULL,
                     username TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'member',
                     joined_at BIGINT NOT NULL,
                     PRIMARY KEY(chat_id, username)
                 );
@@ -163,7 +168,55 @@ def init_db() -> None:
                     media_kind TEXT,
                     media_url TEXT,
                     media_mime TEXT,
-                    media_name TEXT
+                    media_name TEXT,
+                    reply_to_id BIGINT
+                );
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS message_reactions (
+                    message_id BIGINT NOT NULL,
+                    username TEXT NOT NULL,
+                    emoji TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    PRIMARY KEY(message_id, username, emoji)
+                );
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_pins (
+                    chat_id TEXT NOT NULL,
+                    message_id BIGINT NOT NULL,
+                    pinned_by TEXT NOT NULL,
+                    pinned_at BIGINT NOT NULL,
+                    PRIMARY KEY(chat_id, message_id)
+                );
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_member_settings (
+                    chat_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    muted_until BIGINT,
+                    PRIMARY KEY(chat_id, username)
+                );
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    token TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    expires_at BIGINT NOT NULL,
+                    revoked BOOLEAN NOT NULL DEFAULT FALSE
                 );
                 """
             )
@@ -212,6 +265,8 @@ def init_db() -> None:
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url TEXT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_mime TEXT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id BIGINT;")
+            cur.execute("ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';")
 
         conn.commit()
 
@@ -237,11 +292,11 @@ def ensure_general_for(username: str) -> None:
 
             cur.execute(
                 """
-                INSERT INTO chat_members(chat_id, username, joined_at)
-                VALUES (%s,%s,%s)
+                INSERT INTO chat_members(chat_id, username, role, joined_at)
+                VALUES (%s,%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, int(time.time())),
+                ("general", username, "member", int(time.time())),
             )
 
             cur.execute(
@@ -250,7 +305,7 @@ def ensure_general_for(username: str) -> None:
                 VALUES (%s,%s,0,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, int(time.time())),
+                ("general", username, "member", int(time.time())),
             )
         conn.commit()
 
@@ -260,6 +315,47 @@ def list_members(chat_id: str) -> List[str]:
         with conn.cursor() as cur:
             cur.execute("SELECT username FROM chat_members WHERE chat_id=%s", (chat_id,))
             return [r["username"] for r in cur.fetchall()]
+
+
+def get_member_role(conn, chat_id: str, username: str) -> Optional[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT role FROM chat_members WHERE chat_id=%s AND username=%s",
+            (chat_id, username),
+        )
+        row = cur.fetchone()
+        return (row["role"] if row else None)
+
+
+def can_moderate(conn, chat_id: str, username: str) -> bool:
+    role = get_member_role(conn, chat_id, username)
+    return role in ("owner", "admin")
+
+
+def issue_refresh_token(username: str) -> str:
+    token = secrets.token_urlsafe(36)
+    now = now_ts()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO refresh_tokens(token, username, created_at, expires_at, revoked) VALUES (%s,%s,%s,%s,FALSE)",
+                (token, username, now, now + REFRESH_TTL_SECONDS),
+            )
+        conn.commit()
+    return token
+
+
+RATE_BUCKETS: Dict[str, List[int]] = {}
+
+
+def check_rate_limit(bucket: str, limit: int) -> None:
+    now = now_ts()
+    start = now - RATE_LIMIT_WINDOW_SECONDS
+    arr = [t for t in RATE_BUCKETS.get(bucket, []) if t >= start]
+    if len(arr) >= limit:
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
+    arr.append(now)
+    RATE_BUCKETS[bucket] = arr
 
 
 def get_chat(conn, chat_id: str) -> Optional[dict]:
@@ -479,17 +575,40 @@ class InviteIn(BaseModel):
 class MessageCreateIn(BaseModel):
     chat_id: str
     text: str
+    reply_to_id: Optional[int] = None
 
 
 class MessageEditIn(BaseModel):
     text: str
 
 
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class ReactionIn(BaseModel):
+    emoji: str
+
+
+class PinIn(BaseModel):
+    message_id: int
+
+
+class MuteIn(BaseModel):
+    muted_minutes: int = 0
+
+
+class RoleUpdateIn(BaseModel):
+    username: str
+    role: str
+
+
 # =========================
 # Auth API
 # =========================
 @app.post("/api/register")
-def register(data: AuthIn):
+def register(data: AuthIn, request: Request):
+    check_rate_limit(f"auth:register:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
     username = data.username.strip()
     password = data.password
 
@@ -514,11 +633,13 @@ def register(data: AuthIn):
     ensure_general_for(username)
 
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
-    return {"token": token, "username": username}
+    refresh_token = issue_refresh_token(username)
+    return {"token": token, "refresh_token": refresh_token, "username": username}
 
 
 @app.post("/api/login")
-def login(data: AuthIn):
+def login(data: AuthIn, request: Request):
+    check_rate_limit(f"auth:login:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
     username = data.username.strip()
 
     with db() as conn:
@@ -533,7 +654,35 @@ def login(data: AuthIn):
 
     now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
-    return {"token": token, "username": username}
+    refresh_token = issue_refresh_token(username)
+    return {"token": token, "refresh_token": refresh_token, "username": username}
+
+
+
+
+@app.post("/api/refresh")
+def refresh_tokens(data: RefreshIn):
+    rt = (data.refresh_token or "").strip()
+    if not rt:
+        raise HTTPException(status_code=400, detail="refresh_token required")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT username, expires_at, revoked FROM refresh_tokens WHERE token=%s",
+                (rt,),
+            )
+            row = cur.fetchone()
+            if not row or row["revoked"] or int(row["expires_at"]) < now_ts():
+                raise HTTPException(status_code=401, detail="Invalid refresh token")
+            username = row["username"]
+            cur.execute("UPDATE refresh_tokens SET revoked=TRUE WHERE token=%s", (rt,))
+        conn.commit()
+
+    now = now_ts()
+    token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
+    new_rt = issue_refresh_token(username)
+    return {"token": token, "refresh_token": new_rt, "username": username}
 
 
 @app.get("/api/me")
@@ -606,9 +755,15 @@ def list_chats(username: str = Depends(get_current_username)):
                     SELECT chat_id, last_read_id
                     FROM chat_reads
                     WHERE username=%s
+                ),
+                settings AS (
+                    SELECT chat_id, muted_until
+                    FROM chat_member_settings
+                    WHERE username=%s
                 )
                 SELECT
                     mc.id, mc.type, mc.title, mc.created_by, mc.created_at,
+                    (SELECT s.muted_until FROM settings s WHERE s.chat_id = mc.id) AS muted_until,
                     COALESCE((
                         SELECT COUNT(*)
                         FROM messages msg
@@ -623,7 +778,7 @@ def list_chats(username: str = Depends(get_current_username)):
                 FROM my_chats mc
                 ORDER BY mc.created_at DESC
                 """,
-                (username, username, username, username),
+                (username, username, username, username, username),
             )
             rows = cur.fetchall()
     return {"chats": rows}
@@ -646,10 +801,10 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
             )
             cur.execute(
                 """
-                INSERT INTO chat_members(chat_id, username, joined_at)
-                VALUES (%s,%s,%s)
+                INSERT INTO chat_members(chat_id, username, role, joined_at)
+                VALUES (%s,%s,%s,%s)
                 """,
-                (chat_id, username, now),
+                (chat_id, username, "owner", now),
             )
             cur.execute(
                 """
@@ -705,11 +860,11 @@ def create_dm_chat(data: DMCreateIn, username: str = Depends(get_current_usernam
             for u in {username, other}:
                 cur.execute(
                     """
-                    INSERT INTO chat_members(chat_id, username, joined_at)
-                    VALUES (%s,%s,%s)
+                    INSERT INTO chat_members(chat_id, username, role, joined_at)
+                    VALUES (%s,%s,%s,%s)
                     ON CONFLICT (chat_id, username) DO NOTHING
                     """,
-                    (chat_id, u, now),
+                    (chat_id, u, "member", now),
                 )
                 cur.execute(
                     """
@@ -742,8 +897,8 @@ async def invite_to_group(
             raise HTTPException(status_code=404, detail="Chat not found")
         if chat["type"] != "group":
             raise HTTPException(status_code=400, detail="Invite only in group chats")
-        if chat["created_by"] != username:
-            raise HTTPException(status_code=403, detail="Only creator can invite")
+        if not can_moderate(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Only owner/admin can invite")
 
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM users WHERE username=%s", (other,))
@@ -753,11 +908,11 @@ async def invite_to_group(
             now = now_ts()
             cur.execute(
                 """
-                INSERT INTO chat_members(chat_id, username, joined_at)
-                VALUES (%s,%s,%s)
+                INSERT INTO chat_members(chat_id, username, role, joined_at)
+                VALUES (%s,%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                (chat_id, other, now),
+                (chat_id, other, "member", now),
             )
             cur.execute(
                 """
@@ -771,6 +926,149 @@ async def invite_to_group(
 
     # notify invited user (they will refresh chats)
     await broadcast_users([other], {"type": "invited", "chat_id": chat_id})
+    return {"ok": True}
+
+
+@app.patch("/api/chats/{chat_id}/members/role")
+async def update_member_role(
+    chat_id: str,
+    data: RoleUpdateIn,
+    username: str = Depends(get_current_username),
+):
+    target = data.username.strip()
+    role = data.role.strip().lower()
+    if role not in ("admin", "member"):
+        raise HTTPException(status_code=400, detail="role must be admin|member")
+
+    with db() as conn:
+        chat = get_chat(conn, chat_id)
+        if not chat or chat["type"] != "group":
+            raise HTTPException(status_code=404, detail="Group chat not found")
+        if get_member_role(conn, chat_id, username) != "owner":
+            raise HTTPException(status_code=403, detail="Only owner can change roles")
+        if target == chat["created_by"]:
+            raise HTTPException(status_code=400, detail="Cannot change owner role")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE chat_members SET role=%s WHERE chat_id=%s AND username=%s",
+                (role, chat_id, target),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Member not found")
+        conn.commit()
+
+    await broadcast_chat(chat_id, {"type": "role_updated", "chat_id": chat_id, "username": target, "role": role})
+    return {"ok": True}
+
+
+@app.delete("/api/chats/{chat_id}/members/{target}")
+async def remove_member(
+    chat_id: str,
+    target: str,
+    username: str = Depends(get_current_username),
+):
+    target = target.strip()
+    with db() as conn:
+        chat = get_chat(conn, chat_id)
+        if not chat or chat["type"] != "group":
+            raise HTTPException(status_code=404, detail="Group chat not found")
+        if not can_moderate(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Only owner/admin can remove members")
+        if target == chat["created_by"]:
+            raise HTTPException(status_code=400, detail="Owner cannot be removed")
+
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM chat_members WHERE chat_id=%s AND username=%s", (chat_id, target))
+            cur.execute("DELETE FROM chat_reads WHERE chat_id=%s AND username=%s", (chat_id, target))
+        conn.commit()
+
+    await broadcast_chat(chat_id, {"type": "member_removed", "chat_id": chat_id, "username": target})
+    await broadcast_users([target], {"type": "chat_deleted", "chat_id": chat_id})
+    return {"ok": True}
+
+
+@app.post("/api/chats/{chat_id}/mute")
+def mute_chat(
+    chat_id: str,
+    data: MuteIn,
+    username: str = Depends(get_current_username),
+):
+    minutes = max(0, min(int(data.muted_minutes), 60 * 24 * 30))
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
+        muted_until = (now_ts() + minutes * 60) if minutes else None
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_member_settings(chat_id, username, muted_until)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (chat_id, username)
+                DO UPDATE SET muted_until=EXCLUDED.muted_until
+                """,
+                (chat_id, username, muted_until),
+            )
+        conn.commit()
+    return {"ok": True, "muted_until": muted_until}
+
+
+@app.get("/api/chats/{chat_id}/pins")
+def list_pins(chat_id: str, username: str = Depends(get_current_username)):
+    with db() as conn:
+        if not is_member(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Not a member")
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.message_id, p.pinned_by, p.pinned_at, m.text, m.sender
+                FROM chat_pins p
+                JOIN messages m ON m.id = p.message_id
+                WHERE p.chat_id=%s
+                ORDER BY p.pinned_at DESC
+                LIMIT 20
+                """,
+                (chat_id,),
+            )
+            rows = cur.fetchall()
+    return {"pins": rows}
+
+
+@app.post("/api/chats/{chat_id}/pins")
+async def pin_message(
+    chat_id: str,
+    data: PinIn,
+    username: str = Depends(get_current_username),
+):
+    message_id = int(data.message_id)
+    with db() as conn:
+        chat = get_chat(conn, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        if not can_moderate(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Only owner/admin can pin")
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM messages WHERE id=%s AND chat_id=%s", (message_id, chat_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Message not found")
+            cur.execute(
+                "INSERT INTO chat_pins(chat_id, message_id, pinned_by, pinned_at) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (chat_id, message_id, username, now_ts()),
+            )
+        conn.commit()
+    await broadcast_chat(chat_id, {"type": "pin_added", "chat_id": chat_id, "message_id": message_id})
+    return {"ok": True}
+
+
+@app.delete("/api/chats/{chat_id}/pins/{message_id}")
+async def unpin_message(chat_id: str, message_id: int, username: str = Depends(get_current_username)):
+    with db() as conn:
+        if not can_moderate(conn, chat_id, username):
+            raise HTTPException(status_code=403, detail="Only owner/admin can unpin")
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM chat_pins WHERE chat_id=%s AND message_id=%s", (chat_id, message_id))
+        conn.commit()
+    await broadcast_chat(chat_id, {"type": "pin_removed", "chat_id": chat_id, "message_id": int(message_id)})
     return {"ok": True}
 
 
@@ -937,8 +1235,12 @@ def list_messages(
                 SELECT
                   m.id, m.chat_id, m.sender, m.text, m.created_at,
                   m.updated_at, m.is_edited, m.deleted_for_all,
-                  m.media_kind, m.media_url, m.media_mime, m.media_name
+                  m.media_kind, m.media_url, m.media_mime, m.media_name,
+                  m.reply_to_id,
+                  r.sender AS reply_sender,
+                  r.text AS reply_text
                 FROM messages m
+                LEFT JOIN messages r ON r.id = m.reply_to_id
                 LEFT JOIN message_hidden hid
                   ON hid.message_id = m.id AND hid.username = %s
                 WHERE m.chat_id = %s
@@ -950,6 +1252,20 @@ def list_messages(
             )
             rows = cur.fetchall()
 
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT message_id, emoji, COUNT(*) AS cnt FROM message_reactions WHERE message_id = ANY(%s) GROUP BY message_id, emoji",
+                ([int(r["id"]) for r in rows] or [0],),
+            )
+            react_rows = cur.fetchall()
+
+    by_mid: Dict[int, Dict[str, int]] = {}
+    for rr in react_rows:
+        by_mid.setdefault(int(rr["message_id"]), {})[rr["emoji"]] = int(rr["cnt"])
+
+    for r in rows:
+        r["reactions"] = by_mid.get(int(r["id"]), {})
+
     return {"messages": rows}
 
 
@@ -958,8 +1274,10 @@ async def create_text_message(
     data: MessageCreateIn,
     username: str = Depends(get_current_username),
 ):
+    check_rate_limit(f"send:{username}", RATE_LIMIT_MAX_SEND)
     chat_id = (data.chat_id or "").strip()
     text = (data.text or "").strip()
+    reply_to_id = int(data.reply_to_id or 0)
 
     if not chat_id:
         raise HTTPException(status_code=400, detail="chat_id required")
@@ -975,13 +1293,23 @@ async def create_text_message(
             raise HTTPException(status_code=403, detail="Not a member")
 
         with conn.cursor() as cur:
+            reply_sender = None
+            reply_text = None
+            if reply_to_id > 0:
+                cur.execute("SELECT id, sender, text FROM messages WHERE id=%s AND chat_id=%s", (reply_to_id, chat_id))
+                rep = cur.fetchone()
+                if not rep:
+                    raise HTTPException(status_code=400, detail="reply_to message not found")
+                reply_sender = rep["sender"]
+                reply_text = (rep["text"] or "")[:160]
+
             cur.execute(
                 """
-                INSERT INTO messages(chat_id, sender, text, created_at)
-                VALUES (%s,%s,%s,%s)
+                INSERT INTO messages(chat_id, sender, text, created_at, reply_to_id)
+                VALUES (%s,%s,%s,%s,%s)
                 RETURNING id
                 """,
-                (chat_id, username, text, ts),
+                (chat_id, username, text, ts, reply_to_id if reply_to_id > 0 else None),
             )
             msg_id = int(cur.fetchone()["id"])
 
@@ -1010,6 +1338,10 @@ async def create_text_message(
         "media_url": None,
         "media_mime": None,
         "media_name": None,
+        "reply_to_id": (reply_to_id if reply_to_id > 0 else None),
+        "reply_sender": reply_sender,
+        "reply_text": reply_text,
+        "reactions": {},
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id}
@@ -1112,6 +1444,62 @@ async def delete_message(
     return {"ok": True}
 
 
+@app.post("/api/messages/{message_id}/reactions")
+async def add_reaction(
+    message_id: int,
+    data: ReactionIn,
+    username: str = Depends(get_current_username),
+):
+    emoji = (data.emoji or "").strip()[:16]
+    if not emoji:
+        raise HTTPException(status_code=400, detail="emoji required")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM messages WHERE id=%s", (message_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found")
+            chat_id = row["chat_id"]
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member")
+            cur.execute(
+                """
+                INSERT INTO message_reactions(message_id, username, emoji, created_at)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (message_id, username, emoji, now_ts()),
+            )
+        conn.commit()
+
+    await broadcast_chat(chat_id, {"type": "reaction_added", "chat_id": chat_id, "message_id": message_id, "emoji": emoji, "username": username})
+    return {"ok": True}
+
+
+@app.delete("/api/messages/{message_id}/reactions")
+async def remove_reaction(
+    message_id: int,
+    emoji: str = Query(...),
+    username: str = Depends(get_current_username),
+):
+    emoji = (emoji or "").strip()[:16]
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM messages WHERE id=%s", (message_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found")
+            chat_id = row["chat_id"]
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member")
+            cur.execute("DELETE FROM message_reactions WHERE message_id=%s AND username=%s AND emoji=%s", (message_id, username, emoji))
+        conn.commit()
+
+    await broadcast_chat(chat_id, {"type": "reaction_removed", "chat_id": chat_id, "message_id": message_id, "emoji": emoji, "username": username})
+    return {"ok": True}
+
+
 # =========================
 # Upload media (image/video/audio)
 # =========================
@@ -1122,6 +1510,7 @@ async def upload_media(
     file: UploadFile = File(...),
     username: str = Depends(get_current_username),
 ):
+    check_rate_limit(f"send:{username}", RATE_LIMIT_MAX_SEND)
     chat_id = (chat_id or "").strip()
     caption = (text or "").strip()
 
@@ -1195,6 +1584,10 @@ async def upload_media(
         "media_url": url,
         "media_mime": content_type,
         "media_name": media_name,
+        "reply_to_id": None,
+        "reply_sender": None,
+        "reply_text": None,
+        "reactions": {},
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
