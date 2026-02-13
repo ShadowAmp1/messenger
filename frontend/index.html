@@ -98,7 +98,7 @@
     }
 
     .sidebar{
-      border-right: 1px offering: 1px solid var(--border);
+      border-right: 1px solid var(--border);
       background: rgba(0,0,0,.08);
       min-height: 0;
       display:flex;
@@ -333,7 +333,6 @@
       opacity: .85;
     }
 
-    /* Drawer for mobile */
     .drawer-backdrop{
       display:none;
       position: fixed;
@@ -355,7 +354,6 @@
       .sidebar.open{ transform: translateX(0); }
     }
 
-    /* Overlays */
     .overlay{
       position: fixed;
       inset: 0;
@@ -442,7 +440,6 @@
       color:#ffdede !important;
     }
 
-    /* Create sheet */
     .sheet-overlay{
       position: fixed;
       inset: 0;
@@ -489,7 +486,6 @@
       font-weight: 700;
     }
 
-    /* Context menu */
     .ctx{
       position: fixed;
       z-index: 80;
@@ -513,7 +509,6 @@
     }
     .ctx button:hover{ background: rgba(255,255,255,.05); }
 
-    /* Voice waveform */
     .voice{ display:flex; align-items:center; gap:10px; max-width: 420px; }
     .voice .play{
       width:38px;height:38px;
@@ -716,12 +711,14 @@
   let token = localStorage.getItem("token") || "";
   let me = localStorage.getItem("username") || "";
   let avatarUrl = localStorage.getItem("avatar_url") || "";
+
+  // GLOBAL WS (one connection per user)
   let ws = null;
 
   let chats = [];
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
-  const msgElById = new Map(); // id -> element
+  const msgElById = new Map();
   let lastMsgId = 0;
 
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
@@ -803,7 +800,7 @@
   }
 
   // =========================
-  // Voice waveform player (same logic)
+  // Voice waveform player
   // =========================
   const VOICE = { peaksCache: new Map(), audioCache: new Map(), players: new Set() };
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
@@ -1036,7 +1033,9 @@
       setWhoami();
       closeAuth();
       addSystem(`✅ Logged in as ${me}`);
-      await refreshChats(true);
+
+      connectWS_GLOBAL();            // <— IMPORTANT
+      await refreshChats(true);      // load chats + choose active + load history
     }catch(e){
       showAuthError(String(e.message || e));
     }finally{
@@ -1051,6 +1050,124 @@
     const data = await api("/api/me");
     avatarUrl = data.avatar_url || "";
     localStorage.setItem("avatar_url", avatarUrl || "");
+  }
+
+  // =========================
+  // Typing (GLOBAL WS)
+  // =========================
+  const typingState = new Map(); // username -> bool (only for active chat)
+  function renderTyping(){
+    const names = [];
+    for (const [u, on] of typingState.entries()){
+      if (on && u !== me) names.push(u);
+    }
+    $("typing").textContent = names.length ? `${names.join(", ")} печатает…` : "";
+  }
+
+  let typingTimer = null;
+  let typingSent = false;
+
+  function wsSendTyping(isTyping){
+    if (!ws || ws.readyState !== 1) return;
+    if (!activeChatId) return;
+    try{
+      ws.send(JSON.stringify({
+        type: "typing",
+        chat_id: activeChatId,
+        is_typing: !!isTyping
+      }));
+    }catch(_){}
+  }
+
+  function onLocalTyping(){
+    if (!token || !activeChatId) return;
+    if (!typingSent){
+      typingSent = true;
+      wsSendTyping(true);
+    }
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(()=>{
+      typingSent = false;
+      wsSendTyping(false);
+    }, 900);
+  }
+
+  // =========================
+  // GLOBAL WS connect
+  // =========================
+  function connectWS_GLOBAL(){
+    if (!token) return;
+
+    if (ws){
+      try{ ws.close(); }catch{}
+      ws = null;
+    }
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${location.host}/ws/user?token=${encodeURIComponent(token)}`;
+
+    setNet("connecting…");
+    ws = new WebSocket(url);
+
+    ws.onopen = () => setNet("online");
+    ws.onclose = () => setNet("offline");
+    ws.onerror = () => setNet("offline");
+
+    ws.onmessage = (ev) => {
+      let data = null;
+      try{ data = JSON.parse(ev.data); }catch{ return; }
+
+      // typing (server sends for any chat)
+      if (data.type === "typing"){
+        // show typing only in active chat
+        if (data.chat_id === activeChatId){
+          typingState.set(data.username, !!data.is_typing);
+          renderTyping();
+        }
+        return;
+      }
+
+      // new message for ANY chat
+      if (data.type === "message"){
+        if (data.sender && data.sender !== me) beep();
+
+        // if active chat -> add to UI
+        if (data.chat_id === activeChatId){
+          addMsg(data);
+        }
+
+        // always refresh chat list to update unread badges (no polling!)
+        refreshChats(false).catch(()=>{});
+        return;
+      }
+
+      // edited
+      if (data.type === "message_edited"){
+        if (data.chat_id === activeChatId){
+          applyEdited(data.id, data.text, true);
+        }
+        return;
+      }
+
+      // deleted for all
+      if (data.type === "message_deleted_all"){
+        if (data.chat_id === activeChatId){
+          applyDeletedAll(data.id);
+        }
+        refreshChats(false).catch(()=>{});
+        return;
+      }
+
+      // chat deleted
+      if (data.type === "chat_deleted"){
+        refreshChats(true).catch(()=>{});
+        if (data.chat_id === activeChatId){
+          $("msgs").innerHTML = "";
+          addSystem("🗑 Этот чат удалён.");
+        }
+        return;
+      }
+    };
   }
 
   // =========================
@@ -1191,7 +1308,7 @@
     if (!res.ok){ setStatus(""); throw new Error(data.detail || raw); }
     $("text").value = "";
     $("file").value = "";
-    setStatus(`🟢 WS • ${activeChatTitle}`);
+    setStatus(`online • ${activeChatTitle}`);
   }
 
   async function sendVoiceNow(){
@@ -1204,7 +1321,7 @@
     }catch(e){
       addSystem("❌ " + (e.message || e));
     }finally{
-      setStatus(`🟢 WS • ${activeChatTitle}`);
+      setStatus(`online • ${activeChatTitle}`);
     }
   }
 
@@ -1234,93 +1351,6 @@
     }catch(e){
       $("profileHint").textContent = "❌ " + (e.message || e);
     }
-  }
-
-  // =========================
-  // Typing
-  // =========================
-  let typingTimer = null;
-  let typingSent = false;
-  function wsSendTyping(isTyping){
-    if (!ws || ws.readyState !== 1) return;
-    try{
-      ws.send(JSON.stringify({ type:"typing", is_typing: !!isTyping }));
-    }catch(_){}
-  }
-  function onLocalTyping(){
-    if (!token || !activeChatId) return;
-    if (!typingSent){
-      typingSent = true;
-      wsSendTyping(true);
-    }
-    clearTimeout(typingTimer);
-    typingTimer = setTimeout(()=>{
-      typingSent = false;
-      wsSendTyping(false);
-    }, 900);
-  }
-
-  // =========================
-  // WS
-  // =========================
-  const typingState = new Map(); // username -> bool
-  function renderTyping(){
-    const names = [];
-    for (const [u, on] of typingState.entries()){
-      if (on && u !== me) names.push(u);
-    }
-    $("typing").textContent = names.length ? `${names.join(", ")} печатает…` : "";
-  }
-
-  function connectWS(){
-    if (!token || !activeChatId) return;
-    if (ws) { try{ ws.close(); }catch{} ws = null; }
-
-    typingState.clear();
-    renderTyping();
-
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/ws?token=${encodeURIComponent(token)}&chat_id=${encodeURIComponent(activeChatId)}`;
-    setNet("connecting…");
-
-    ws = new WebSocket(url);
-    ws.onopen = () => { setNet("online"); setStatus(`🟢 WS • ${activeChatTitle}`); };
-    ws.onclose = () => { setNet("offline"); };
-    ws.onerror = () => { setNet("offline"); };
-
-    ws.onmessage = (ev) => {
-      let data = null;
-      try{ data = JSON.parse(ev.data); }catch{ return; }
-
-      if (data.type === "typing" && data.chat_id === activeChatId){
-        typingState.set(data.username, !!data.is_typing);
-        renderTyping();
-        return;
-      }
-
-      if (data.type === "message" && data.chat_id === activeChatId){
-        if (data.sender && data.sender !== me) beep();
-        addMsg(data);
-        refreshChats(false).catch(()=>{}); // update unread counts quickly
-        return;
-      }
-
-      if (data.type === "message_edited" && data.chat_id === activeChatId){
-        applyEdited(data.id, data.text, true);
-        return;
-      }
-
-      if (data.type === "message_deleted_all" && data.chat_id === activeChatId){
-        applyDeletedAll(data.id);
-        return;
-      }
-
-      if (data.type === "chat_deleted"){
-        refreshChats(true).catch(()=>{});
-        addSystem("🗑 Чат удалён.");
-        return;
-      }
-    };
   }
 
   // =========================
@@ -1434,7 +1464,6 @@
       $("msgs").innerHTML = "";
       addSystem("ℹ️ У тебя пока нет чатов. Создай групповой чат или DM.");
       setStatus("");
-      if (ws) { ws.close(); ws = null; }
       return;
     }
 
@@ -1444,6 +1473,9 @@
         localStorage.setItem("activeChatId", activeChatId);
       }
       selectChat(activeChatId);
+    } else {
+      // just rerender selection if needed
+      renderChatList();
     }
   }
 
@@ -1451,6 +1483,9 @@
     stopAllExcept(null);
     msgElById.clear();
     lastMsgId = 0;
+
+    typingState.clear();
+    renderTyping();
 
     activeChatId = chatId;
     localStorage.setItem("activeChatId", activeChatId);
@@ -1462,7 +1497,6 @@
     addSystem(`📌 Chat: ${activeChatTitle}`);
 
     renderChatList();
-    connectWS();
     loadHistory();
   }
 
@@ -1564,7 +1598,7 @@
       div.appendChild(body);
     }
 
-    // context menu (ПКМ / long press) for delete/edit
+    // context menu (ПКМ / long press)
     div.addEventListener("contextmenu", (e)=>{
       e.preventDefault();
       openCtxForMsg(div, e.clientX, e.clientY);
@@ -1598,7 +1632,6 @@
     const body = el.querySelector('[data-role="body"]');
     if (body) body.textContent = text;
 
-    // edited label
     const metaRight = el.querySelector(".meta span");
     if (metaRight && isEdited && !metaRight.querySelector(".edited")){
       const ed = document.createElement("span");
@@ -1618,7 +1651,6 @@
       body.className = "deleted";
       body.textContent = "Сообщение удалено";
     }
-    // remove edited label if present (optional)
   }
 
   async function loadHistory(){
@@ -1650,8 +1682,10 @@
     if (!text) return;
     if (!token) return openAuth("login");
     if (!activeChatId) return;
+
     $("text").value = "";
     try{
+      // не добавляем локально — придёт через WS
       await api("/api/messages", "POST", { chat_id: activeChatId, text });
     }catch(e){
       addSystem("❌ " + e.message);
@@ -1667,6 +1701,7 @@
     if (!lastMsgId) return;
     if (!isNearBottom($("msgs"))) return;
     if (lastMsgId <= lastMarked) return;
+
     lastMarked = lastMsgId;
     try{
       await api(`/api/chats/${encodeURIComponent(activeChatId)}/read?last_id=${lastMsgId}`, "POST");
@@ -1675,7 +1710,7 @@
   }
 
   // =========================
-  // Context menu: edit/delete me/delete all
+  // Context menu
   // =========================
   const ctx = {
     el: $("ctxMenu"),
@@ -1705,10 +1740,9 @@
     ctx.msgId = msgId;
     ctx.sender = sender;
 
-    // buttons visibility
     ctx.edit.style.display = (!deleted && sender === me) ? "" : "none";
     ctx.delAll.style.display = (!deleted && sender === me) ? "" : "none";
-    ctx.delMe.style.display = "" ; // always possible
+    ctx.delMe.style.display = "";
 
     ctx.el.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
     ctx.el.style.top = `${Math.min(y, window.innerHeight - 160)}px`;
@@ -1789,7 +1823,7 @@
   async function deleteForAll(msgId){
     try{
       await api(`/api/messages/${msgId}?scope=all`, "DELETE");
-      applyDeletedAll(msgId); // WS also will arrive
+      applyDeletedAll(msgId);
       refreshChats(false).catch(()=>{});
     }catch(e){
       addSystem("❌ " + (e.message || e));
@@ -1828,7 +1862,9 @@
     localStorage.removeItem("username");
     localStorage.removeItem("avatar_url");
     localStorage.removeItem("activeChatId");
+
     if (ws) { try{ ws.close(); }catch{} ws = null; }
+
     $("msgs").innerHTML = "";
     chats = [];
     activeChatId = "";
@@ -1920,9 +1956,6 @@
     }
   });
 
-  // polling unread for other chats (since ws only for active chat)
-  setInterval(()=>{ if (token) refreshChats(false).catch(()=>{}); }, 8000);
-
   // =========================
   // Bootstrap
   // =========================
@@ -1937,6 +1970,8 @@
         localStorage.setItem("username", me);
         localStorage.setItem("avatar_url", avatarUrl || "");
         setWhoami();
+
+        connectWS_GLOBAL();       // <— now global WS once
         await refreshChats(true);
       })
       .catch(() => {
