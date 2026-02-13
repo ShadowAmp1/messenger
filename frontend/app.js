@@ -144,14 +144,15 @@
     }catch{ return "—"; }
   }
 
-  function createMessageAvatar(sender, isMine){
+  function createMessageAvatar(sender, isMine, senderAvatarUrl){
     const initial = String(sender || "?").trim().charAt(0).toUpperCase() || "?";
-    const mine = isMine && avatarUrl;
-    if (mine){
+    const preferredAvatar = (isMine ? avatarUrl : senderAvatarUrl) || senderAvatarUrl;
+    if (preferredAvatar){
       const img = document.createElement("img");
       img.className = "msg-avatar";
-      img.src = avatarUrl;
+      img.src = preferredAvatar;
       img.alt = sender || "me";
+      img.loading = "lazy";
       return img;
     }
     const badge = document.createElement("div");
@@ -1142,7 +1143,7 @@
     msgElById.set(m.id, div);
     lastMsgId = Math.max(lastMsgId, Number(m.id||0));
 
-    const avatarNode = createMessageAvatar(m.sender, m.sender === me);
+    const avatarNode = createMessageAvatar(m.sender, m.sender === me, m.sender_avatar_url);
     if (m.sender === me){
       row.appendChild(div);
       row.appendChild(avatarNode);
