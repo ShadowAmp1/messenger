@@ -343,6 +343,57 @@
     setStatus(activeChatTitle ? `online • ${activeChatTitle}` : "—");
   }
 
+  function formatCallDuration(seconds){
+    const total = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function renderCallLog(node, msg){
+    if (!node || !msg) return false;
+
+    const raw = String(msg.text || "").trim();
+    if (!raw.startsWith("__call_log__:")) return false;
+
+    let payload = null;
+    try{
+      payload = JSON.parse(raw.slice("__call_log__:".length));
+    }catch(_){
+      return false;
+    }
+
+    const kind = payload.kind === "video" ? "🎥 Видеозвонок" : "📞 Голосовой звонок";
+    const statusMap = {
+      ended: "завершён",
+      missed: "пропущен",
+      rejected: "отклонён"
+    };
+    const statusText = statusMap[payload.status] || "завершён";
+    const duration = formatCallDuration(payload.duration);
+
+    node.className = "call-log";
+    node.textContent = `${kind} • ${statusText} • ${duration}`;
+    return true;
+  }
+
+  async function pushCallLog(payload, chatId){
+    if (!token || !chatId) return;
+    const kind = payload?.kind === "video" ? "video" : "voice";
+    const status = String(payload?.status || "ended");
+    const duration = Math.max(0, Math.floor(Number(payload?.duration || 0)));
+    const startedAt = Math.floor(Number(payload?.started_at || Math.floor(Date.now()/1000)));
+
+    try{
+      await api("/api/messages", "POST", {
+        chat_id: chatId,
+        text: `__call_log__:${JSON.stringify({ kind, status, duration, started_at: startedAt })}`
+      });
+    }catch(_){
+      // keep call flow resilient even when message logging fails
+    }
+  }
+
   function createMessageAvatar(sender, isMine, senderAvatarUrl){
     const initial = String(sender || "?").trim().charAt(0).toUpperCase() || "?";
     const preferredAvatar = (isMine ? avatarUrl : senderAvatarUrl) || senderAvatarUrl;
