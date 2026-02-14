@@ -257,7 +257,65 @@
     micBtn: $("btnToggleCallMic"),
     camBtn: $("btnToggleCallCamera")
   };
-  let callState = { active:false, mode:"voice", stream:null, micOn:true, camOn:false };
+  let callState = {
+    active:false,
+    mode:"voice",
+    stream:null,
+    micOn:true,
+    camOn:false,
+    callId:"",
+    chatId:"",
+    status:"idle",
+    startedAt:0,
+    connectedAt:0
+  };
+  let callRingTimer = null;
+  let callTickerTimer = null;
+  const pendingIncomingCalls = new Map();
+
+  function resetCallState(){
+    callState = {
+      active:false,
+      mode:"voice",
+      stream:null,
+      micOn:true,
+      camOn:false,
+      callId:"",
+      chatId:"",
+      status:"idle",
+      startedAt:0,
+      connectedAt:0
+    };
+  }
+
+  function stopCallTimers(){
+    if (callRingTimer){ clearTimeout(callRingTimer); callRingTimer = null; }
+    if (callTickerTimer){ clearInterval(callTickerTimer); callTickerTimer = null; }
+  }
+
+  function startCallTicker(){
+    stopCallTimers();
+    callTickerTimer = setInterval(()=>{
+      if (!callState.active || callState.status !== "connected") return;
+      const sec = Math.max(0, Math.floor(Date.now()/1000) - Number(callState.connectedAt || Math.floor(Date.now()/1000)));
+      callUi.hint.textContent = `Разговор: ${formatCallDuration(sec)}`;
+    }, 1000);
+  }
+
+  function wsSendCall(type, extra={}){
+    if (!ws || ws.readyState !== 1) return;
+    try{
+      ws.send(JSON.stringify({
+        type,
+        chat_id: String(extra.chat_id || callState.chatId || activeChatId || ""),
+        call_id: String(extra.call_id || callState.callId || ""),
+        mode: String(extra.mode || callState.mode || "voice"),
+        started_at: Number(extra.started_at || callState.startedAt || Math.floor(Date.now()/1000)),
+        duration: Number(extra.duration || 0),
+        reason: String(extra.reason || "")
+      }));
+    }catch(_){ }
+  }
 
   function updateChatActionState(){
     const disabled = !activeChatId;
@@ -277,12 +335,14 @@
     if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
     const isVideo = mode === "video";
     try{
-      if (callState.active) endCall({ silent:true });
+      if (callState.active) endCall({ silent:true, emit:false });
       const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:isVideo });
-      callState = { active:true, mode, stream, micOn:true, camOn:isVideo };
+      const callId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const startedAt = Math.floor(Date.now()/1000);
+      callState = { active:true, mode, stream, micOn:true, camOn:isVideo, callId, chatId:activeChatId, status:"dialing", startedAt, connectedAt:0 };
 
       callUi.title.textContent = isVideo ? `Видеозвонок • ${activeChatTitle}` : `Голосовой звонок • ${activeChatTitle}`;
-      callUi.hint.textContent = isVideo ? "Камера и микрофон активны. Управляйте звонком кнопками ниже." : "Микрофон активен. Можно включить камеру прямо во время звонка.";
+      callUi.hint.textContent = "Ожидаем ответа собеседника…";
       if (isVideo){
         callUi.localVideo.classList.remove("is-hidden");
         callUi.localVideo.srcObject = stream;
@@ -294,9 +354,73 @@
       callUi.overlay.setAttribute("aria-hidden", "false");
       setStatus(isVideo ? "🎥 Видеозвонок" : "📞 Голосовой звонок");
       updateCallUi();
-      addSystem(isVideo ? "📹 Видеозвонок запущен." : "📞 Голосовой звонок запущен.");
+
+      wsSendCall("call_offer", { chat_id: activeChatId, call_id: callId, mode, started_at: startedAt });
+      callRingTimer = setTimeout(async ()=>{
+        if (!callState.active || callState.callId !== callId || callState.status !== "dialing") return;
+        wsSendCall("call_timeout", { chat_id: activeChatId, call_id: callId, mode, started_at: startedAt });
+        await pushCallLog({ kind:mode, status:"missed", started_at:startedAt, duration:0 }, activeChatId);
+        endCall({ silent:true, emit:false });
+        addSystem("☎️ Пропущенный звонок.");
+      }, 30000);
     }catch(e){
       addSystem("❌ " + (e.message || e));
+    }
+  }
+
+  async function handleIncomingOffer(data){
+    const chatId = String(data.chat_id || "");
+    const callId = String(data.call_id || "");
+    const mode = data.mode === "video" ? "video" : "voice";
+    const startedAt = Number(data.started_at || Math.floor(Date.now()/1000));
+    if (!chatId || !callId) return;
+
+    pendingIncomingCalls.set(callId, { chatId, mode, startedAt, from: data.username || "" });
+    const who = data.username || "собеседник";
+    addSystem(`${mode === "video" ? "🎥" : "📞"} Входящий звонок от ${who}.`);
+
+    if (chatId === activeChatId && !callState.active){
+      const accepted = confirm(`${mode === "video" ? "Видеозвонок" : "Голосовой звонок"} от ${who}. Ответить?`);
+      if (!accepted){
+        wsSendCall("call_reject", { chat_id: chatId, call_id: callId, mode, started_at: startedAt, reason:"declined" });
+        pendingIncomingCalls.delete(callId);
+        await pushCallLog({ kind:mode, status:"rejected", started_at:startedAt, duration:0 }, chatId);
+        return;
+      }
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:mode === "video" });
+        callState = {
+          active:true,
+          mode,
+          stream,
+          micOn:true,
+          camOn:mode === "video",
+          callId,
+          chatId,
+          status:"connected",
+          startedAt,
+          connectedAt:Math.floor(Date.now()/1000)
+        };
+        callUi.title.textContent = mode === "video" ? `Видеозвонок • ${who}` : `Голосовой звонок • ${who}`;
+        callUi.hint.textContent = "Разговор: 0:00";
+        if (mode === "video"){
+          callUi.localVideo.classList.remove("is-hidden");
+          callUi.localVideo.srcObject = stream;
+        } else {
+          callUi.localVideo.classList.add("is-hidden");
+          callUi.localVideo.srcObject = null;
+        }
+        callUi.overlay.classList.add("open");
+        callUi.overlay.setAttribute("aria-hidden", "false");
+        updateCallUi();
+        startCallTicker();
+        wsSendCall("call_answer", { chat_id: chatId, call_id: callId, mode, started_at: startedAt });
+        pendingIncomingCalls.delete(callId);
+      }catch(e){
+        wsSendCall("call_reject", { chat_id: chatId, call_id: callId, mode, started_at: startedAt, reason:"media_error" });
+        pendingIncomingCalls.delete(callId);
+        addSystem("⚠️ Не удалось принять звонок: " + (e.message || e));
+      }
     }
   }
 
@@ -331,16 +455,76 @@
     updateCallUi();
   }
 
-  function endCall({ silent=false } = {}){
+  async function endCall({ silent=false, emit=true } = {}){
     if (!callState.active) return;
+    const ended = { ...callState };
+    stopCallTimers();
     try{ callState.stream?.getTracks().forEach((track)=> track.stop()); }catch(_){ }
     callUi.localVideo.srcObject = null;
     callUi.localVideo.classList.add("is-hidden");
     callUi.overlay.classList.remove("open");
     callUi.overlay.setAttribute("aria-hidden", "true");
+
+    if (emit && ended.callId && ended.chatId){
+      const duration = ended.status === "connected" ? Math.max(0, Math.floor(Date.now()/1000) - Number(ended.connectedAt || Math.floor(Date.now()/1000))) : 0;
+      wsSendCall("call_end", { chat_id: ended.chatId, call_id: ended.callId, mode: ended.mode, started_at: ended.startedAt, duration });
+      await pushCallLog({ kind:ended.mode, status:"ended", started_at:ended.startedAt || Math.floor(Date.now()/1000), duration }, ended.chatId);
+    }
+
     if (!silent) addSystem("☎️ Звонок завершён.");
-    callState = { active:false, mode:"voice", stream:null, micOn:true, camOn:false };
+    resetCallState();
     setStatus(activeChatTitle ? `online • ${activeChatTitle}` : "—");
+  }
+
+  function formatCallDuration(seconds){
+    const total = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function renderCallLog(node, msg){
+    if (!node || !msg) return false;
+
+    const raw = String(msg.text || "").trim();
+    if (!raw.startsWith("__call_log__:")) return false;
+
+    let payload = null;
+    try{
+      payload = JSON.parse(raw.slice("__call_log__:".length));
+    }catch(_){
+      return false;
+    }
+
+    const kind = payload.kind === "video" ? "🎥 Видеозвонок" : "📞 Голосовой звонок";
+    const statusMap = {
+      ended: "завершён",
+      missed: "пропущен",
+      rejected: "отклонён"
+    };
+    const statusText = statusMap[payload.status] || "завершён";
+    const duration = formatCallDuration(payload.duration);
+
+    node.className = "call-log";
+    node.textContent = `${kind} • ${statusText} • ${duration}`;
+    return true;
+  }
+
+  async function pushCallLog(payload, chatId){
+    if (!token || !chatId) return;
+    const kind = payload?.kind === "video" ? "video" : "voice";
+    const status = String(payload?.status || "ended");
+    const duration = Math.max(0, Math.floor(Number(payload?.duration || 0)));
+    const startedAt = Math.floor(Number(payload?.started_at || Math.floor(Date.now()/1000)));
+
+    try{
+      await api("/api/messages", "POST", {
+        chat_id: chatId,
+        text: `__call_log__:${JSON.stringify({ kind, status, duration, started_at: startedAt })}`
+      });
+    }catch(_){
+      // keep call flow resilient even when message logging fails
+    }
   }
 
   function createMessageAvatar(sender, isMine, senderAvatarUrl){
@@ -818,8 +1002,7 @@
           stopCallTimers();
           callState.status = "connected";
           callState.connectedAt = Math.floor(Date.now()/1000);
-          callUi.hint.textContent = "Собеседник ответил";
-          callUi.meta.textContent = "Длительность: 0:00";
+          callUi.hint.textContent = "Разговор: 0:00";
           updateCallUi();
           startCallTicker();
           setStatus("✅ Разговор начат");
@@ -828,18 +1011,33 @@
       }
       if (data.type === "call_reject"){
         if (data.username === me) return;
-        if (callState.active && callState.callId === String(data.call_id || "")){
-          endCall({ reason:"rejected", remote:true });
-          pushCallLog({ kind:callState.mode, status:"rejected", started_at:callState.startedAt, duration:0 }, callState.chatId);
+        const callId = String(data.call_id || "");
+        const pending = pendingIncomingCalls.get(callId);
+        if (pending){
+          pendingIncomingCalls.delete(callId);
+          pushCallLog({ kind:pending.mode, status:"rejected", started_at:pending.startedAt, duration:0 }, pending.chatId);
+        }
+        if (callState.active && callState.callId === callId){
+          const ended = { ...callState };
+          endCall({ silent:true, emit:false });
+          pushCallLog({ kind:ended.mode, status:"rejected", started_at:ended.startedAt, duration:0 }, ended.chatId);
           addSystem("☎️ Собеседник отклонил звонок.");
         }
         return;
       }
       if (data.type === "call_timeout"){
         if (data.username === me) return;
-        if (callState.active && callState.callId === String(data.call_id || "")){
-          endCall({ reason:"timeout", remote:true, silent:true });
-          pushCallLog({ kind:callState.mode, status:"missed", started_at:callState.startedAt, duration:0 }, callState.chatId);
+        const callId = String(data.call_id || "");
+        const pending = pendingIncomingCalls.get(callId);
+        if (pending){
+          pendingIncomingCalls.delete(callId);
+          pushCallLog({ kind:pending.mode, status:"missed", started_at:pending.startedAt, duration:0 }, pending.chatId);
+          if (pending.chatId === activeChatId) addSystem("☎️ Пропущенный звонок.");
+        }
+        if (callState.active && callState.callId === callId){
+          const ended = { ...callState };
+          endCall({ silent:true, emit:false });
+          pushCallLog({ kind:ended.mode, status:"missed", started_at:ended.startedAt, duration:0 }, ended.chatId);
           addSystem("☎️ Пропущенный звонок.");
         }
         return;
@@ -848,8 +1046,9 @@
         if (data.username === me) return;
         if (callState.active && callState.callId === String(data.call_id || "")){
           const duration = Number(data.duration || 0);
-          endCall({ reason:"ended", remote:true, silent:true });
-          pushCallLog({ kind:data.mode || callState.mode, status:"ended", started_at:Math.floor(Date.now()/1000)-duration, duration }, callState.chatId);
+          const ended = { ...callState };
+          endCall({ silent:true, emit:false });
+          pushCallLog({ kind:data.mode || ended.mode, status:"ended", started_at:Math.floor(Date.now()/1000)-duration, duration }, ended.chatId);
           addSystem("☎️ Звонок завершён собеседником.");
         }
         return;
