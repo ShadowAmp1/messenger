@@ -2159,7 +2159,6 @@
       closeSheet();
       closeProfile();
       closeProfileMenu();
-      closeMediaViewer();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
