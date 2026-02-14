@@ -117,8 +117,39 @@
       align-items:center;
       gap:8px;
     }
+    .pill-btn{
+      cursor:pointer;
+      color:inherit;
+      font:inherit;
+    }
+    .profile-menu{
+      position:absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 220px;
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      display:none;
+      padding:8px;
+      z-index: 120;
+    }
+    .profile-menu.open{ display:flex; flex-direction:column; gap:4px; }
+    .profile-menu-item{
+      width:100%;
+      border:0;
+      border-radius: 10px;
+      background: transparent;
+      color:var(--text);
+      text-align:left;
+      padding:10px;
+      cursor:pointer;
+    }
+    .profile-menu-item:hover{ background: var(--surface); }
     .small{ font-size:12px; opacity:.85; color: var(--muted); }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .top-controls{ position:relative; }
     .btn{
       padding: 10px 14px;
       border-radius: 999px;
