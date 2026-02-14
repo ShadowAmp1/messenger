@@ -1840,10 +1840,7 @@
         card.className = "overview-item";
         const title = m.media_name || m.media_kind || "Файл";
         card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
-        card.onclick = async () => {
-          closeChatInfo();
-          await openMessageById(m.id);
-        };
+        card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
         wrap.appendChild(card);
       }
       mediaBox.appendChild(wrap);
@@ -2171,7 +2168,6 @@
       closeSheet();
       closeProfile();
       closeProfileMenu();
-      closeMediaViewer();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
