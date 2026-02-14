@@ -7,10 +7,6 @@ import re
 import hmac
 import hashlib
 import secrets
-import tempfile
-import threading
-import urllib.parse
-import urllib.request
 from typing import Dict, Set, Optional, List, Any, Tuple
 
 import psycopg
@@ -84,15 +80,6 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
-
-WHISPER_MODEL_SIZE = (os.environ.get("WHISPER_MODEL_SIZE") or "small").strip()
-WHISPER_DEVICE = (os.environ.get("WHISPER_DEVICE") or "cpu").strip()
-WHISPER_COMPUTE_TYPE = (os.environ.get("WHISPER_COMPUTE_TYPE") or "int8").strip()
-WHISPER_BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "1"))
-
-_WHISPER_MODEL = None
-_WHISPER_MODEL_LOCK = threading.Lock()
-
 
 # =========================
 # Cloudinary config
@@ -582,83 +569,6 @@ def now_ts() -> int:
     return int(time.time())
 
 
-def _is_allowed_media_url(url: str) -> bool:
-    parsed = urllib.parse.urlparse(url or "")
-    if parsed.scheme not in ("http", "https"):
-        return False
-    host = (parsed.netloc or "").lower()
-    if not host:
-        return False
-    if host.endswith("res.cloudinary.com"):
-        return True
-    return False
-
-
-def get_whisper_model():
-    global _WHISPER_MODEL
-    if _WHISPER_MODEL is not None:
-        return _WHISPER_MODEL
-
-    with _WHISPER_MODEL_LOCK:
-        if _WHISPER_MODEL is not None:
-            return _WHISPER_MODEL
-        try:
-            from faster_whisper import WhisperModel
-        except Exception:
-            raise HTTPException(status_code=503, detail="faster-whisper package is not installed")
-
-        try:
-            _WHISPER_MODEL = WhisperModel(
-                WHISPER_MODEL_SIZE,
-                device=WHISPER_DEVICE,
-                compute_type=WHISPER_COMPUTE_TYPE,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Failed to initialize faster-whisper model: {e}")
-    return _WHISPER_MODEL
-
-
-def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt: Optional[str] = None) -> str:
-    if not _is_allowed_media_url(media_url):
-        raise HTTPException(status_code=400, detail="Unsupported media_url host")
-
-    req = urllib.request.Request(media_url, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            audio_bytes = r.read()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to download media_url: {e}")
-
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="Downloaded media is empty")
-    if len(audio_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"Audio too large (max {MAX_UPLOAD_MB}MB)")
-
-    model = get_whisper_model()
-    suffix = os.path.splitext(urllib.parse.urlparse(media_url).path)[1] or ".webm"
-
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-        tmp.write(audio_bytes)
-        tmp.flush()
-        try:
-            segments, _ = model.transcribe(
-                tmp.name,
-                language=(language or None),
-                initial_prompt=(prompt or None),
-                beam_size=max(1, WHISPER_BEAM_SIZE),
-                vad_filter=True,
-            )
-            text = " ".join((segment.text or "").strip() for segment in segments).strip()
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Transcription provider error: {e}")
-
-    if not text:
-        raise HTTPException(status_code=502, detail="Transcription result is empty")
-    return text
-
-
 # =========================
 # Realtime (Global WS per user)
 # =========================
@@ -773,12 +683,6 @@ class ReactionIn(BaseModel):
 
 class ForwardIn(BaseModel):
     target_chat_id: str
-
-
-class TranscribeIn(BaseModel):
-    media_url: str
-    language: Optional[str] = None
-    prompt: Optional[str] = None
 
 
 class PinIn(BaseModel):
@@ -2328,29 +2232,6 @@ async def upload_media(
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
-
-
-@app.get("/api/capabilities")
-def capabilities():
-    try:
-        from faster_whisper import WhisperModel  # noqa: F401
-        enabled = True
-    except Exception:
-        enabled = False
-    return {"transcription_enabled": enabled, "transcription_provider": "faster-whisper", "whisper_model": WHISPER_MODEL_SIZE}
-
-
-@app.post("/api/transcribe")
-def transcribe_voice(
-    payload: TranscribeIn,
-    username: str = Depends(get_current_username),
-):
-    media_url = (payload.media_url or "").strip()
-    if not media_url:
-        raise HTTPException(status_code=400, detail="media_url required")
-
-    text = transcribe_media_url(media_url, language=payload.language, prompt=payload.prompt)
-    return {"ok": True, "text": text}
 
 
 # =========================
