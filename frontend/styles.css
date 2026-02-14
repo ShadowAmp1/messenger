@@ -17,6 +17,7 @@
       --shadow: 0 10px 32px rgba(26, 50, 74, .18);
       --top-bg: rgba(255,255,255,.93);
       --bubble-shadow: 0 4px 14px rgba(16, 35, 49, .08);
+      --telegram-blue:#3390ec;
     }
     :root[data-theme="dark"]{
       --bg:#0f1720;
@@ -69,7 +70,10 @@
       margin:0;
       font-family: system-ui, Arial;
       background: var(--bg);
-      background: radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 18%, var(--bg)) 0%, var(--bg) 45%);
+      background:
+        radial-gradient(circle at 20% 0, rgba(91,153,219,.16), transparent 46%),
+        radial-gradient(circle at 80% 100%, rgba(51,144,236,.12), transparent 54%),
+        var(--bg);
       color:var(--text, #102331);
       overflow: hidden;
       overscroll-behavior: none;
@@ -184,7 +188,7 @@
 
     .sidebar{
       border-right: 1px solid var(--border);
-      background: var(--surface);
+      background: color-mix(in srgb, var(--surface) 93%, #e8f2fc);
       min-height: 0;
       display:flex;
       flex-direction: column;
@@ -240,11 +244,34 @@
       gap: 8px;
       padding-right: 2px;
     }
-    .chatitem{
+    .sidebar-search-wrap{display:flex;flex-direction:column;gap:8px;}
+    .sidebar-search{
+      border-radius:999px;
+      padding:9px 14px;
+      background:color-mix(in srgb, var(--input) 82%, var(--surface));
+    }
+    .chat-filters{display:flex;gap:6px;overflow:auto;padding-bottom:2px;}
+    .chat-filter{
       border:1px solid var(--border);
-      background: var(--input);
-      border-radius: 10px;
-      padding: 10px;
+      background:var(--input);
+      color:var(--text);
+      padding:6px 11px;
+      border-radius:999px;
+      cursor:pointer;
+      white-space:nowrap;
+      font-size:12px;
+      font-weight:600;
+    }
+    .chat-filter.is-active{
+      border-color:color-mix(in srgb, var(--telegram-blue) 65%, var(--border));
+      color:#fff;
+      background:var(--telegram-blue);
+    }
+    .chatitem{
+      border:1px solid color-mix(in srgb, var(--border) 72%, transparent);
+      background: color-mix(in srgb, var(--input) 96%, var(--surface));
+      border-radius: 14px;
+      padding: 12px;
       display:flex;
       align-items:center;
       justify-content: space-between;
@@ -253,11 +280,11 @@
       user-select:none;
       position: relative;
     }
-    .chatitem:hover{ filter:brightness(1.08); }
+    .chatitem:hover{ filter:brightness(1.04); }
     .chatitem.active{
       outline: 0;
-      border-color: var(--primary);
-      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--telegram-blue) 55%, var(--border));
+      background: color-mix(in srgb, var(--telegram-blue) 16%, var(--surface-2));
     }
     .chatitem .left{ min-width:0; }
     .chatitem .title{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
@@ -317,8 +344,10 @@
       display:flex;
       flex-direction: column;
       gap: 12px;
-      background: var(--surface);
-      background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 62%, transparent), transparent 18%);
+      background:
+        radial-gradient(circle at 10% 20%, rgba(95,160,223,.12), transparent 36%),
+        radial-gradient(circle at 90% 80%, rgba(102,199,255,.08), transparent 44%),
+        var(--surface);
     }
     .msg-row{
       display:flex;
@@ -355,11 +384,35 @@
       position: relative;
       box-shadow: var(--bubble-shadow);
     }
+    .msg::before{
+      content:"";
+      position:absolute;
+      left:-6px;
+      bottom:0;
+      width:12px;
+      height:12px;
+      background:var(--incoming);
+      border-left:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      border-bottom-left-radius:10px;
+      clip-path: polygon(100% 0, 0 100%, 100% 100%);
+    }
     .msg.me{
       align-self:flex-end;
       background: var(--outgoing);
       border-color: var(--border);
       border-color: color-mix(in srgb, var(--outgoing) 65%, var(--border));
+    }
+    .msg.me::before{
+      left:auto;
+      right:-6px;
+      background:var(--outgoing);
+      border-left:0;
+      border-right:1px solid color-mix(in srgb, var(--outgoing) 65%, var(--border));
+      border-bottom:1px solid color-mix(in srgb, var(--outgoing) 65%, var(--border));
+      border-bottom-left-radius:0;
+      border-bottom-right-radius:10px;
+      clip-path: polygon(0 0, 0 100%, 100% 100%);
     }
     .meta{
       display:flex;
@@ -512,10 +565,11 @@
       background: color-mix(in srgb, var(--input) 88%, var(--card));
     }
     #btnSend{
-      background: #4ea4f6;
+      background: var(--telegram-blue);
       color: #fff;
-      border-color: #3f95e6;
+      border-color: color-mix(in srgb, var(--telegram-blue) 78%, #1f6ab0);
       font-weight: 700;
+      border-radius:50%;
     }
     .hold{
       border-color: rgba(255,91,91,.35) !important;
