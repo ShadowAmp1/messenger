@@ -263,6 +263,15 @@
     return String((data && data.text) || "").trim();
   }
 
+  function getTranscriptErrorMessage(err){
+    const raw = String((err && err.message) || err || "").trim();
+    if (!raw) return "Не удалось выполнить расшифровку.";
+    if (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured")){
+      return "Расшифровка временно недоступна: сервис не настроен администратором.";
+    }
+    return `Ошибка расшифровки: ${raw}`;
+  }
+
   // =========================
   // Voice waveform player
   // =========================
@@ -1398,8 +1407,11 @@
             transcriptLoaded = true;
             transcriptBtn.textContent = "🙈 Скрыть расшифровку";
           }catch(e){
-            transcriptText.textContent = `Ошибка расшифровки: ${String(e.message || e)}`;
-            transcriptBtn.textContent = "🔁 Повторить расшифровку";
+            const raw = String((e && e.message) || e || "");
+            transcriptText.textContent = getTranscriptErrorMessage(e);
+            transcriptBtn.textContent = (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured"))
+              ? "⚙️ Расшифровка недоступна"
+              : "🔁 Повторить расшифровку";
           }finally{
             transcriptBtn.disabled = false;
           }
