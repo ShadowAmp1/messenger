@@ -1817,33 +1817,15 @@
     renderChatInfoTab();
   }
 
-  function detectOverviewMediaKind(item){
-    const explicitKind = String(item.media_kind || "").toLowerCase();
-    if (["image", "video", "audio"].includes(explicitKind)) return explicitKind;
-
-    const mime = String(item.media_mime || "").toLowerCase();
-    if (mime.startsWith("image/")) return "image";
-    if (mime.startsWith("video/")) return "video";
-    if (mime.startsWith("audio/")) return "audio";
-
-    return inferMediaKind(item.media_url || "", "");
-  }
-
   function renderChatInfoTab(){
     const list = $("chatInfoTabList");
     const data = chatInfoState.data || {};
     const media = data.media || [];
     const links = data.links || [];
 
-    const mediaOnly = media.filter((m)=> {
-      const kind = detectOverviewMediaKind(m);
-      return kind === "image" || kind === "video";
-    });
-    const voiceOnly = media.filter((m)=> detectOverviewMediaKind(m) === "audio");
-    const filesOnly = media.filter((m)=> {
-      const kind = detectOverviewMediaKind(m);
-      return !["image", "video", "audio"].includes(kind);
-    });
+    const mediaOnly = media.filter((m)=> ["image", "video"].includes(String(m.media_kind || "").toLowerCase()));
+    const voiceOnly = media.filter((m)=> String(m.media_kind || "").toLowerCase() === "audio");
+    const filesOnly = media.filter((m)=> !["image", "video", "audio"].includes(String(m.media_kind || "").toLowerCase()));
 
     const map = {
       media: { title: "Медиа", items: mediaOnly, empty: "В чате пока нет фото/видео" },
@@ -1876,39 +1858,8 @@
           await openMessageById(item.id);
         };
       } else {
-        const kind = detectOverviewMediaKind(item);
         const title = item.media_name || item.media_kind || "Файл";
-        const meta = document.createElement("div");
-        meta.innerHTML = `<b>${escapeHtml(title)}</b><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
-        card.appendChild(meta);
-
-        if (chatInfoState.activeTab === "media" && item.media_url){
-          if (kind === "video"){
-            const video = document.createElement("video");
-            video.className = "chat-info-preview";
-            video.src = item.media_url;
-            video.preload = "metadata";
-            video.muted = true;
-            video.playsInline = true;
-            card.appendChild(video);
-          } else {
-            const img = document.createElement("img");
-            img.className = "chat-info-preview";
-            img.src = item.media_url;
-            img.alt = title;
-            img.loading = "lazy";
-            card.appendChild(img);
-          }
-        }
-
-        if (chatInfoState.activeTab === "voice" && item.media_url){
-          const voiceWrap = document.createElement("div");
-          voiceWrap.className = "chat-info-voice";
-          const player = createVoicePlayer(item.media_url);
-          voiceWrap.appendChild(player.root);
-          card.appendChild(voiceWrap);
-        }
-
+        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
         card.onclick = async () => {
           closeChatInfo();
           await openMessageById(item.id);
@@ -1939,7 +1890,54 @@
     const msgs = data.messages || [];
     chatInfoState.data = data;
     $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
-    renderChatInfoTab();
+
+    const mediaBox = $("chatInfoMedia");
+    mediaBox.innerHTML = `<b>Медиа:</b>`;
+    if (!media.length){
+      mediaBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      const wrap = document.createElement("div");
+      wrap.className = "overview-grid";
+      for (const m of media){
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "overview-item";
+        const title = m.media_name || m.media_kind || "Файл";
+        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
+        card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
+        wrap.appendChild(card);
+      }
+      mediaBox.appendChild(wrap);
+    }
+
+    const linksBox = $("chatInfoLinks");
+    linksBox.innerHTML = `<b>Ссылки:</b>`;
+    if (!links.length){
+      linksBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      for (const l of links){
+        const raw = String((l.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
+        const url = raw ? (raw.startsWith("http") ? raw : `https://${raw}`) : "";
+        const row = document.createElement("div");
+        row.className = "small";
+        row.innerHTML = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(raw)}</a>` : escapeHtml((l.text||'').slice(0,90));
+        linksBox.appendChild(row);
+      }
+    }
+
+    const membersBox = $("chatInfoMembers");
+    membersBox.innerHTML = `<b>Участники:</b>`;
+    const memberWrap = document.createElement("div");
+    memberWrap.className = "overview-grid";
+    for (const m of members){
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "overview-item";
+      card.innerHTML = `<div><b>${escapeHtml(m.display_name || m.username)}</b></div><div class="small">@${escapeHtml(m.username || '')} • ${m.online ? 'в сети' : 'не в сети'}</div>`;
+      card.onclick = () => openUserProfile(m.username);
+      memberWrap.appendChild(card);
+    }
+    membersBox.appendChild(memberWrap);
   }
 
   // =========================
@@ -2237,7 +2235,6 @@
       closeSheet();
       closeProfile();
       closeProfileMenu();
-      closeMediaViewer();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
