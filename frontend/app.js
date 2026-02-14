@@ -704,6 +704,25 @@
 
   const profile = { overlay: $("profileOverlay") };
   const userProfile = { overlay: $("userProfileOverlay"), activeUsername: "" };
+  const profileMenu = { root: $("profileMenu"), trigger: $("whoami") };
+
+  function openProfileMenu(){
+    if (!token) return openAuth("login");
+    profileMenu.root.classList.add("open");
+    profileMenu.root.setAttribute("aria-hidden", "false");
+    profileMenu.trigger.setAttribute("aria-expanded", "true");
+  }
+
+  function closeProfileMenu(){
+    profileMenu.root.classList.remove("open");
+    profileMenu.root.setAttribute("aria-hidden", "true");
+    profileMenu.trigger.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleProfileMenu(){
+    if (profileMenu.root.classList.contains("open")) closeProfileMenu();
+    else openProfileMenu();
+  }
   function openProfile(){
     if (!token) return openAuth("login");
     $("profileHint").textContent = `@${me}`;
@@ -1675,9 +1694,14 @@
       return;
     }
     for (const c of contacts){
-      const row = document.createElement('div');
+      const row = document.createElement('button');
+      row.type = 'button';
       row.className = 'chatitem';
       row.innerHTML = `<div><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
+      row.onclick = async ()=>{
+        closeContacts();
+        await openUserProfile(c.username);
+      };
       list.appendChild(row);
     }
   }
@@ -1918,6 +1942,7 @@
     toggleHidden($("btnOpenAuth"), !!token);
     toggleHidden($("btnLogout"), !token);
     toggleHidden($("btnProfile"), !token);
+    if (!token) closeProfileMenu();
 
     const img = $("topAvatar");
     if (token && avatarUrl){
@@ -1972,6 +1997,10 @@
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
   $("btnProfile").onclick = () => openProfile();
+  $("whoami").onclick = () => toggleProfileMenu();
+  $("btnMenuMyProfile").onclick = () => { closeProfileMenu(); openProfile(); };
+  $("btnMenuContacts").onclick = () => { closeProfileMenu(); openContacts(); };
+  $("btnMenuLogout").onclick = () => { closeProfileMenu(); logout(); };
   $("btnContacts").onclick = () => openContacts();
   $("btnChatInfo").onclick = () => openChatInfo();
 
@@ -2010,6 +2039,13 @@
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
   $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
+  document.addEventListener("click", (e)=>{
+    const menu = $("profileMenu");
+    const trigger = $("whoami");
+    if (!menu.classList.contains("open")) return;
+    if (menu.contains(e.target) || trigger.contains(e.target)) return;
+    closeProfileMenu();
+  });
   $("btnUploadAvatar").onclick = () => uploadAvatar();
   $("btnSaveProfile").onclick = () => saveProfile();
   $("btnUploadStory").onclick = () => uploadStory();
@@ -2049,6 +2085,7 @@
       closeSidebar();
       closeSheet();
       closeProfile();
+      closeProfileMenu();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
