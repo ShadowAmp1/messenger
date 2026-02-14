@@ -276,8 +276,8 @@
   function getTranscriptErrorMessage(err){
     const raw = String((err && err.message) || err || "").trim();
     if (!raw) return "Не удалось выполнить расшифровку.";
-    if (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured")){
-      return "Расшифровка временно недоступна: сервис не настроен администратором.";
+    if (raw.includes("faster-whisper package is not installed") || raw.includes("Failed to initialize faster-whisper model")){
+      return "Расшифровка временно недоступна: faster-whisper не настроен на сервере.";
     }
     return `Ошибка расшифровки: ${raw}`;
   }
@@ -1402,7 +1402,7 @@
         transcriptText.style.opacity = ".95";
         if (!transcriptionEnabled){
           transcriptText.style.display = "block";
-          transcriptText.textContent = "Сервер расшифровки не настроен. Добавьте OPENAI_API_KEY в настройки backend.";
+          transcriptText.textContent = "Сервер расшифровки недоступен. Проверьте настройки faster-whisper в backend.";
         }
 
         let transcriptLoaded = false;
@@ -1424,7 +1424,7 @@
           }catch(e){
             const raw = String((e && e.message) || e || "");
             transcriptText.textContent = getTranscriptErrorMessage(e);
-            transcriptBtn.textContent = (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured"))
+            transcriptBtn.textContent = (raw.includes("faster-whisper package is not installed") || raw.includes("Failed to initialize faster-whisper model"))
               ? "⚙️ Расшифровка недоступна"
               : "🔁 Повторить расшифровку";
           }finally{
