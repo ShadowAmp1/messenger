@@ -13,6 +13,7 @@
   let stories = [];
   let avatarHistory = [];
   let contacts = [];
+  let transcriptionEnabled = true;
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
@@ -254,6 +255,15 @@
     return data;
   }
 
+
+  async function loadCapabilities(){
+    try{
+      const data = await api("/api/capabilities");
+      transcriptionEnabled = !!(data && data.transcription_enabled);
+    }catch(_){
+      transcriptionEnabled = true;
+    }
+  }
 
   async function requestVoiceTranscript(mediaUrl, language="ru"){
     const data = await api("/api/transcribe", "POST", {
@@ -1380,7 +1390,8 @@
         const transcriptBtn = document.createElement("button");
         transcriptBtn.className = "btn";
         transcriptBtn.type = "button";
-        transcriptBtn.textContent = "📝 Расшифровать";
+        transcriptBtn.textContent = transcriptionEnabled ? "📝 Расшифровать" : "⚙️ Расшифровка недоступна";
+        transcriptBtn.disabled = !transcriptionEnabled;
         transcriptBtn.style.padding = "6px 12px";
         transcriptBtn.style.fontSize = "12px";
 
@@ -1389,6 +1400,10 @@
         transcriptText.style.whiteSpace = "pre-wrap";
         transcriptText.style.fontSize = "13px";
         transcriptText.style.opacity = ".95";
+        if (!transcriptionEnabled){
+          transcriptText.style.display = "block";
+          transcriptText.textContent = "Сервер расшифровки не настроен. Добавьте OPENAI_API_KEY в настройки backend.";
+        }
 
         let transcriptLoaded = false;
         transcriptBtn.onclick = async () => {
@@ -2466,6 +2481,7 @@ ${listText}
         localStorage.setItem("display_name", displayName || "");
         localStorage.setItem("profile_bio", profileBio || "");
         setWhoami();
+        await loadCapabilities();
 
         connectWS_GLOBAL();
         await refreshChats(true);
