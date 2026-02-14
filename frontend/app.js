@@ -2035,7 +2035,6 @@
   const ctx = {
     el: $("ctxMenu"),
     reply: $("ctxReply"),
-    react: $("ctxReact"),
     pin: $("ctxPin"),
     forward: $("ctxForward"),
     edit: $("ctxEdit"),
@@ -2075,8 +2074,8 @@
       loadCtxMessageStatus(msgId);
     }
 
-    ctx.el.style.left = `${Math.min(x, window.innerWidth - 260)}px`;
-    ctx.el.style.top = `${Math.min(y, window.innerHeight - 220)}px`;
+    ctx.el.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+    ctx.el.style.top = `${Math.min(y, window.innerHeight - 200)}px`;
     ctx.el.classList.add("open");
   }
 
@@ -2222,7 +2221,6 @@ ${listText}
   }
 
   ctx.reply.onclick = () => { if (ctx.msgEl) { setReply({ id: ctx.msgId, sender: ctx.sender, text: (ctx.msgEl.querySelector('[data-role="body"]')?.textContent||"") }); closeCtx(); } };
-  ctx.react.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) toggleReaction(id, "👍"); };
   ctx.pin.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) togglePin(id); };
   ctx.forward.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) forwardMessage(id); };
   ctx.edit.onclick = () => { if (ctx.msgEl) startInlineEdit(ctx.msgEl); };
