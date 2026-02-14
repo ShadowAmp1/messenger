@@ -88,6 +88,15 @@ OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
 OPENAI_TRANSCRIBE_MODEL = (os.environ.get("OPENAI_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
 
 
+def get_openai_api_key() -> str:
+    # Support common aliases to reduce misconfiguration issues across hosts.
+    return (
+        (os.environ.get("OPENAI_API_KEY") or "").strip()
+        or (os.environ.get("OPENAI_KEY") or "").strip()
+        or (os.environ.get("OPENAI_TOKEN") or "").strip()
+    )
+
+
 # =========================
 # Cloudinary config
 # =========================
@@ -589,6 +598,8 @@ def _is_allowed_media_url(url: str) -> bool:
 
 
 def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt: Optional[str] = None) -> str:
+    api_key = get_openai_api_key()
+    if not api_key:
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="Transcription service is not configured")
     if not _is_allowed_media_url(media_url):
@@ -611,7 +622,7 @@ def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt:
     if len(audio_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"Audio too large (max {MAX_UPLOAD_MB}MB)")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=api_key)
 
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as tmp:
         tmp.write(audio_bytes)
@@ -2302,6 +2313,11 @@ async def upload_media(
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
+
+
+@app.get("/api/capabilities")
+def capabilities():
+    return {"transcription_enabled": bool(get_openai_api_key())}
 
 
 @app.post("/api/transcribe")
