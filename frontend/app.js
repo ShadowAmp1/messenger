@@ -761,6 +761,53 @@
         return;
       }
 
+      if (data.type === "call_offer"){
+        if (data.username !== me) handleIncomingOffer(data).catch(()=>{});
+        return;
+      }
+      if (data.type === "call_answer"){
+        if (data.username === me) return;
+        if (callState.active && callState.callId === String(data.call_id || "") && callState.status === "dialing"){
+          stopCallTimers();
+          callState.status = "connected";
+          callState.connectedAt = Math.floor(Date.now()/1000);
+          callUi.hint.textContent = "Собеседник ответил";
+          callUi.meta.textContent = "Длительность: 0:00";
+          updateCallUi();
+          startCallTicker();
+          setStatus("✅ Разговор начат");
+        }
+        return;
+      }
+      if (data.type === "call_reject"){
+        if (data.username === me) return;
+        if (callState.active && callState.callId === String(data.call_id || "")){
+          endCall({ reason:"rejected", remote:true });
+          pushCallLog({ kind:callState.mode, status:"rejected", started_at:callState.startedAt, duration:0 }, callState.chatId);
+          addSystem("☎️ Собеседник отклонил звонок.");
+        }
+        return;
+      }
+      if (data.type === "call_timeout"){
+        if (data.username === me) return;
+        if (callState.active && callState.callId === String(data.call_id || "")){
+          endCall({ reason:"timeout", remote:true, silent:true });
+          pushCallLog({ kind:callState.mode, status:"missed", started_at:callState.startedAt, duration:0 }, callState.chatId);
+          addSystem("☎️ Пропущенный звонок.");
+        }
+        return;
+      }
+      if (data.type === "call_end"){
+        if (data.username === me) return;
+        if (callState.active && callState.callId === String(data.call_id || "")){
+          const duration = Number(data.duration || 0);
+          endCall({ reason:"ended", remote:true, silent:true });
+          pushCallLog({ kind:data.mode || callState.mode, status:"ended", started_at:Math.floor(Date.now()/1000)-duration, duration }, callState.chatId);
+          addSystem("☎️ Звонок завершён собеседником.");
+        }
+        return;
+      }
+
       // edited
       if (data.type === "message_edited"){
         if (data.chat_id === activeChatId){
@@ -1456,8 +1503,11 @@
         div.appendChild(wrap);
       }
 
-      body.textContent = text;
-      body.style.marginTop = (media_url ? "8px" : "0");
+      const isCallLog = renderCallLog(body, m);
+      if (!isCallLog){
+        body.textContent = text;
+        body.style.marginTop = (media_url ? "8px" : "0");
+      }
       div.appendChild(body);
     }
 
