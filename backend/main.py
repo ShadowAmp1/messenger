@@ -1462,7 +1462,7 @@ def chat_overview(
 
             cur.execute(
                 """
-                SELECT id, media_kind, media_url, media_mime, media_name, sender, created_at
+                SELECT id, media_kind, media_url, media_name, sender, created_at
                 FROM messages
                 WHERE chat_id=%s
                   AND deleted_for_all=FALSE
