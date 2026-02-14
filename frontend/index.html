@@ -22,15 +22,20 @@
             <div class="small">Удобный чат для телефона и ПК</div>
           </div>
         </div>
-        <div class="row">
-          <div class="pill" id="whoami">
+        <div class="row top-controls">
+          <button class="pill pill-btn" id="whoami" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="profileMenu">
             <img id="topAvatar" class="avatar" alt="avatar"/>
             <span id="whoText">Не авторизован</span>
-          </div>
+          </button>
           <button class="btn" id="btnThemeToggle" type="button" aria-label="Переключить тему">🌙 Тема</button>
           <button class="btn is-hidden" id="btnProfile" type="button">Профиль</button>
           <button class="btn" id="btnOpenAuth" type="button">Войти</button>
           <button class="btn is-hidden" id="btnLogout" type="button">Выйти</button>
+          <div class="profile-menu" id="profileMenu" aria-hidden="true">
+            <button class="profile-menu-item" id="btnMenuMyProfile" type="button">👤 Мой профиль</button>
+            <button class="profile-menu-item" id="btnMenuContacts" type="button">📇 Контакты</button>
+            <button class="profile-menu-item" id="btnMenuLogout" type="button">🚪 Выйти</button>
+          </div>
         </div>
       </div>
 
@@ -195,9 +200,15 @@
         <button id="btnChatInfoSearch" class="btn" type="button">Поиск</button>
         <div id="chatInfoResults" class="small"></div>
         <div class="sep"></div>
-        <div class="small" id="chatInfoMedia"></div>
-        <div class="small" id="chatInfoLinks"></div>
-        <div class="small" id="chatInfoMembers"></div>
+
+        <div class="chat-info-tabs" role="tablist" aria-label="Категории">
+          <button class="chat-info-tab active" id="chatInfoTabMedia" data-tab="media" type="button" role="tab" aria-selected="true">Медиа</button>
+          <button class="chat-info-tab" id="chatInfoTabFiles" data-tab="files" type="button" role="tab" aria-selected="false">Файлы</button>
+          <button class="chat-info-tab" id="chatInfoTabVoice" data-tab="voice" type="button" role="tab" aria-selected="false">Голосовые</button>
+          <button class="chat-info-tab" id="chatInfoTabLinks" data-tab="links" type="button" role="tab" aria-selected="false">Ссылки</button>
+        </div>
+
+        <div class="chat-info-list" id="chatInfoTabList"></div>
       </div>
     </div>
   </div>
@@ -221,6 +232,19 @@
         <div class="sep"></div>
         <b>Аватары (новые и старые)</b>
         <div id="userProfileAvatars" class="chatlist"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MEDIA VIEWER -->
+  <div class="overlay" id="mediaViewerOverlay" aria-hidden="true">
+    <div class="modal media-viewer" role="dialog" aria-modal="true">
+      <div class="modal-top">
+        <b id="mediaViewerTitle">Медиа</b>
+        <button class="xbtn" id="btnCloseMediaViewer" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="mediaViewerContent"></div>
       </div>
     </div>
   </div>
