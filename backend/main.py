@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import secrets
 import tempfile
+import threading
 import urllib.parse
 import urllib.request
 from typing import Dict, Set, Optional, List, Any, Tuple
@@ -84,17 +85,13 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
 
-OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
-OPENAI_TRANSCRIBE_MODEL = (os.environ.get("OPENAI_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
+WHISPER_MODEL_SIZE = (os.environ.get("WHISPER_MODEL_SIZE") or "small").strip()
+WHISPER_DEVICE = (os.environ.get("WHISPER_DEVICE") or "cpu").strip()
+WHISPER_COMPUTE_TYPE = (os.environ.get("WHISPER_COMPUTE_TYPE") or "int8").strip()
+WHISPER_BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "1"))
 
-
-def get_openai_api_key() -> str:
-    # Support common aliases to reduce misconfiguration issues across hosts.
-    return (
-        (os.environ.get("OPENAI_API_KEY") or "").strip()
-        or (os.environ.get("OPENAI_KEY") or "").strip()
-        or (os.environ.get("OPENAI_TOKEN") or "").strip()
-    )
+_WHISPER_MODEL = None
+_WHISPER_MODEL_LOCK = threading.Lock()
 
 
 # =========================
@@ -597,17 +594,33 @@ def _is_allowed_media_url(url: str) -> bool:
     return False
 
 
+def get_whisper_model():
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is not None:
+        return _WHISPER_MODEL
+
+    with _WHISPER_MODEL_LOCK:
+        if _WHISPER_MODEL is not None:
+            return _WHISPER_MODEL
+        try:
+            from faster_whisper import WhisperModel
+        except Exception:
+            raise HTTPException(status_code=503, detail="faster-whisper package is not installed")
+
+        try:
+            _WHISPER_MODEL = WhisperModel(
+                WHISPER_MODEL_SIZE,
+                device=WHISPER_DEVICE,
+                compute_type=WHISPER_COMPUTE_TYPE,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Failed to initialize faster-whisper model: {e}")
+    return _WHISPER_MODEL
+
+
 def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt: Optional[str] = None) -> str:
-    api_key = get_openai_api_key()
-    if not api_key:
-        raise HTTPException(status_code=503, detail="Transcription service is not configured")
     if not _is_allowed_media_url(media_url):
         raise HTTPException(status_code=400, detail="Unsupported media_url host")
-
-    try:
-        from openai import OpenAI
-    except Exception:
-        raise HTTPException(status_code=503, detail="openai package is not installed")
 
     req = urllib.request.Request(media_url, method="GET")
     try:
@@ -621,23 +634,26 @@ def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt:
     if len(audio_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"Audio too large (max {MAX_UPLOAD_MB}MB)")
 
-    client = OpenAI(api_key=api_key)
+    model = get_whisper_model()
+    suffix = os.path.splitext(urllib.parse.urlparse(media_url).path)[1] or ".webm"
 
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
         tmp.write(audio_bytes)
         tmp.flush()
-        with open(tmp.name, "rb") as f:
-            try:
-                tr = client.audio.transcriptions.create(
-                    model=OPENAI_TRANSCRIBE_MODEL,
-                    file=f,
-                    language=(language or None),
-                    prompt=(prompt or None),
-                )
-            except Exception as e:
-                raise HTTPException(status_code=502, detail=f"Transcription provider error: {e}")
+        try:
+            segments, _ = model.transcribe(
+                tmp.name,
+                language=(language or None),
+                initial_prompt=(prompt or None),
+                beam_size=max(1, WHISPER_BEAM_SIZE),
+                vad_filter=True,
+            )
+            text = " ".join((segment.text or "").strip() for segment in segments).strip()
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Transcription provider error: {e}")
 
-    text = (getattr(tr, "text", None) or "").strip()
     if not text:
         raise HTTPException(status_code=502, detail="Transcription result is empty")
     return text
@@ -2316,7 +2332,12 @@ async def upload_media(
 
 @app.get("/api/capabilities")
 def capabilities():
-    return {"transcription_enabled": bool(get_openai_api_key())}
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+        enabled = True
+    except Exception:
+        enabled = False
+    return {"transcription_enabled": enabled, "transcription_provider": "faster-whisper", "whisper_model": WHISPER_MODEL_SIZE}
 
 
 @app.post("/api/transcribe")
