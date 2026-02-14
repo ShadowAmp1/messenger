@@ -13,6 +13,7 @@
   let stories = [];
   let avatarHistory = [];
   let contacts = [];
+  let transcriptionEnabled = true;
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
@@ -255,12 +256,30 @@
   }
 
 
+  async function loadCapabilities(){
+    try{
+      const data = await api("/api/capabilities");
+      transcriptionEnabled = !!(data && data.transcription_enabled);
+    }catch(_){
+      transcriptionEnabled = true;
+    }
+  }
+
   async function requestVoiceTranscript(mediaUrl, language="ru"){
     const data = await api("/api/transcribe", "POST", {
       media_url: mediaUrl,
       language
     });
     return String((data && data.text) || "").trim();
+  }
+
+  function getTranscriptErrorMessage(err){
+    const raw = String((err && err.message) || err || "").trim();
+    if (!raw) return "Не удалось выполнить расшифровку.";
+    if (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured")){
+      return "Расшифровка временно недоступна: сервис не настроен администратором.";
+    }
+    return `Ошибка расшифровки: ${raw}`;
   }
 
   // =========================
@@ -1371,7 +1390,8 @@
         const transcriptBtn = document.createElement("button");
         transcriptBtn.className = "btn";
         transcriptBtn.type = "button";
-        transcriptBtn.textContent = "📝 Расшифровать";
+        transcriptBtn.textContent = transcriptionEnabled ? "📝 Расшифровать" : "⚙️ Расшифровка недоступна";
+        transcriptBtn.disabled = !transcriptionEnabled;
         transcriptBtn.style.padding = "6px 12px";
         transcriptBtn.style.fontSize = "12px";
 
@@ -1380,6 +1400,10 @@
         transcriptText.style.whiteSpace = "pre-wrap";
         transcriptText.style.fontSize = "13px";
         transcriptText.style.opacity = ".95";
+        if (!transcriptionEnabled){
+          transcriptText.style.display = "block";
+          transcriptText.textContent = "Сервер расшифровки не настроен. Добавьте OPENAI_API_KEY в настройки backend.";
+        }
 
         let transcriptLoaded = false;
         transcriptBtn.onclick = async () => {
@@ -1398,8 +1422,11 @@
             transcriptLoaded = true;
             transcriptBtn.textContent = "🙈 Скрыть расшифровку";
           }catch(e){
-            transcriptText.textContent = `Ошибка расшифровки: ${String(e.message || e)}`;
-            transcriptBtn.textContent = "🔁 Повторить расшифровку";
+            const raw = String((e && e.message) || e || "");
+            transcriptText.textContent = getTranscriptErrorMessage(e);
+            transcriptBtn.textContent = (raw.includes("OPENAI_API_KEY is not configured") || raw.includes("Transcription service is not configured"))
+              ? "⚙️ Расшифровка недоступна"
+              : "🔁 Повторить расшифровку";
           }finally{
             transcriptBtn.disabled = false;
           }
@@ -2454,6 +2481,7 @@ ${listText}
         localStorage.setItem("display_name", displayName || "");
         localStorage.setItem("profile_bio", profileBio || "");
         setWhoami();
+        await loadCapabilities();
 
         connectWS_GLOBAL();
         await refreshChats(true);
