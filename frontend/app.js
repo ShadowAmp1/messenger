@@ -254,6 +254,15 @@
     return data;
   }
 
+
+  async function requestVoiceTranscript(mediaUrl, language="ru"){
+    const data = await api("/api/transcribe", "POST", {
+      media_url: mediaUrl,
+      language
+    });
+    return String((data && data.text) || "").trim();
+  }
+
   // =========================
   // Voice waveform player
   // =========================
@@ -1052,6 +1061,7 @@
 
   function computeChatTitle(c){
     let title = c.title || c.id;
+    if (String(c.id || "") === `fav:${me}`) return "Избранное";
     if (c.type === "dm" && c.title && c.title.startsWith("dm:")){
       const parts = c.title.slice(3).split("|");
       if (parts.length === 2){
@@ -1062,7 +1072,7 @@
     return title;
   }
   function canDeleteChat(c){
-    if (c.id === "general") return false;
+    if (String(c.id || "") === `fav:${me}`) return false;
     if (c.type === "dm") return true;
     return (c.created_by === me);
   }
@@ -1354,6 +1364,50 @@
         wrap.style.padding = "10px";
         const player = createVoicePlayer(media_url);
         wrap.appendChild(player.root);
+
+        const transcriptBox = document.createElement("div");
+        transcriptBox.style.marginTop = "8px";
+
+        const transcriptBtn = document.createElement("button");
+        transcriptBtn.className = "btn";
+        transcriptBtn.type = "button";
+        transcriptBtn.textContent = "📝 Расшифровать";
+        transcriptBtn.style.padding = "6px 12px";
+        transcriptBtn.style.fontSize = "12px";
+
+        const transcriptText = document.createElement("div");
+        transcriptText.style.marginTop = "8px";
+        transcriptText.style.whiteSpace = "pre-wrap";
+        transcriptText.style.fontSize = "13px";
+        transcriptText.style.opacity = ".95";
+
+        let transcriptLoaded = false;
+        transcriptBtn.onclick = async () => {
+          if (transcriptLoaded){
+            transcriptText.style.display = (transcriptText.style.display === "none") ? "block" : "none";
+            transcriptBtn.textContent = transcriptText.style.display === "none" ? "📝 Показать расшифровку" : "🙈 Скрыть расшифровку";
+            return;
+          }
+          transcriptBtn.disabled = true;
+          transcriptBtn.textContent = "⏳ Расшифровка…";
+          transcriptText.style.display = "block";
+          transcriptText.textContent = "Распознаём голос…";
+          try{
+            const text = await requestVoiceTranscript(media_url, "ru");
+            transcriptText.textContent = text || "(Пустой результат распознавания)";
+            transcriptLoaded = true;
+            transcriptBtn.textContent = "🙈 Скрыть расшифровку";
+          }catch(e){
+            transcriptText.textContent = `Ошибка расшифровки: ${String(e.message || e)}`;
+            transcriptBtn.textContent = "🔁 Повторить расшифровку";
+          }finally{
+            transcriptBtn.disabled = false;
+          }
+        };
+
+        transcriptBox.appendChild(transcriptBtn);
+        transcriptBox.appendChild(transcriptText);
+        wrap.appendChild(transcriptBox);
         div.appendChild(wrap);
       }
 
@@ -1983,10 +2037,12 @@
     reply: $("ctxReply"),
     react: $("ctxReact"),
     pin: $("ctxPin"),
+    forward: $("ctxForward"),
     edit: $("ctxEdit"),
     delMe: $("ctxDeleteMe"),
     delAll: $("ctxDeleteAll"),
     cancel: $("ctxCancel"),
+    meta: $("ctxMeta"),
     msgEl: null,
     msgId: 0,
     sender: ""
@@ -1997,6 +2053,7 @@
     ctx.msgEl = null;
     ctx.msgId = 0;
     ctx.sender = "";
+    if (ctx.meta) ctx.meta.innerHTML = "Доставка: —<br/>Прочитано: —";
   }
 
   function openCtxForMsg(msgEl, x, y){
@@ -2013,9 +2070,70 @@
     ctx.delAll.style.display = (!deleted && sender === me) ? "" : "none";
     ctx.delMe.style.display = "";
 
-    ctx.el.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
-    ctx.el.style.top = `${Math.min(y, window.innerHeight - 160)}px`;
+    if (ctx.meta) {
+      ctx.meta.innerHTML = "Доставка: ⏳ загружаем...<br/>Прочитано: ⏳ загружаем...";
+      loadCtxMessageStatus(msgId);
+    }
+
+    ctx.el.style.left = `${Math.min(x, window.innerWidth - 260)}px`;
+    ctx.el.style.top = `${Math.min(y, window.innerHeight - 220)}px`;
     ctx.el.classList.add("open");
+  }
+
+  async function forwardMessage(msgId){
+    const targets = (chats || []).filter((c)=> String(c.id || "") !== String(activeChatId || ""));
+    if (!targets.length){
+      addSystem("⚠️ Нет доступных чатов для пересылки.");
+      return;
+    }
+
+    const listText = targets
+      .map((c, i)=> `${i+1}. ${c.title || c.id} (${c.type || "chat"})`)
+      .join("\n");
+    const input = prompt(`Переслать сообщение в:
+${listText}
+
+Введите номер чата:`);
+    if (input == null) return;
+    const idx = Number(input.trim());
+    if (!Number.isInteger(idx) || idx < 1 || idx > targets.length){
+      addSystem("⚠️ Неверный номер чата.");
+      return;
+    }
+
+    const target = targets[idx - 1];
+    try{
+      await api(`/api/messages/${msgId}/forward`, "POST", { target_chat_id: target.id });
+      addSystem(`✅ Сообщение переслано в: ${target.title || target.id}`);
+      refreshChats(false).catch(()=>{});
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
+  }
+
+  async function loadCtxMessageStatus(messageId){
+    try{
+      const data = await api(`/api/messages/${messageId}/status`);
+      if (!ctx.meta || ctx.msgId !== Number(messageId || 0)) return;
+
+      const membersTotal = Number(data.members_total || 0);
+      const deliveredCount = Number(data.delivered_count || 0);
+      const readCount = Number(data.read_count || 0);
+      const deliveredLatest = data.delivered_latest ? fmtTs(data.delivered_latest) : "—";
+      const readLatest = data.read_latest ? fmtTs(data.read_latest) : "—";
+
+      const deliveredLine = membersTotal > 1
+        ? `Доставка: ${deliveredCount}/${membersTotal} (посл.: ${deliveredLatest})`
+        : `Доставка: ${deliveredLatest}`;
+      const readLine = membersTotal > 1
+        ? `Прочитано: ${readCount}/${membersTotal} (посл.: ${readLatest})`
+        : `Прочитано: ${readLatest}`;
+
+      ctx.meta.innerHTML = `${deliveredLine}<br/>${readLine}`;
+    }catch(_){
+      if (!ctx.meta || ctx.msgId !== Number(messageId || 0)) return;
+      ctx.meta.innerHTML = "Доставка: —<br/>Прочитано: —";
+    }
   }
 
   async function startInlineEdit(msgEl){
@@ -2106,6 +2224,7 @@
   ctx.reply.onclick = () => { if (ctx.msgEl) { setReply({ id: ctx.msgId, sender: ctx.sender, text: (ctx.msgEl.querySelector('[data-role="body"]')?.textContent||"") }); closeCtx(); } };
   ctx.react.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) toggleReaction(id, "👍"); };
   ctx.pin.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) togglePin(id); };
+  ctx.forward.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) forwardMessage(id); };
   ctx.edit.onclick = () => { if (ctx.msgEl) startInlineEdit(ctx.msgEl); };
   ctx.delMe.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) deleteForMe(id); };
   ctx.delAll.onclick = () => { const id = ctx.msgId; closeCtx(); if (id) deleteForAll(id); };
