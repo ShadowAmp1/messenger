@@ -202,6 +202,100 @@
     $("mediaViewerContent").innerHTML = "";
   }
 
+  const callUi = {
+    overlay: $("callOverlay"),
+    title: $("callTitle"),
+    hint: $("callHint"),
+    localVideo: $("callLocalVideo"),
+    micBtn: $("btnToggleCallMic"),
+    camBtn: $("btnToggleCallCamera")
+  };
+  let callState = { active:false, mode:"voice", stream:null, micOn:true, camOn:false };
+
+  function updateChatActionState(){
+    const disabled = !activeChatId;
+    $("btnStartVoiceCall").disabled = disabled;
+    $("btnStartVideoCall").disabled = disabled;
+  }
+
+  function updateCallUi(){
+    if (!callState.active) return;
+    callUi.micBtn.textContent = callState.micOn ? "🎙 Микрофон" : "🔇 Микрофон";
+    callUi.camBtn.textContent = callState.camOn ? "📷 Камера" : "🚫 Камера";
+    callUi.camBtn.disabled = false;
+  }
+
+  async function startCall(mode="voice"){
+    if (!token) return openAuth("login");
+    if (!activeChatId) return addSystem("⚠️ Сначала выбери чат.");
+    const isVideo = mode === "video";
+    try{
+      if (callState.active) endCall({ silent:true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:isVideo });
+      callState = { active:true, mode, stream, micOn:true, camOn:isVideo };
+
+      callUi.title.textContent = isVideo ? `Видеозвонок • ${activeChatTitle}` : `Голосовой звонок • ${activeChatTitle}`;
+      callUi.hint.textContent = isVideo ? "Камера и микрофон активны. Управляйте звонком кнопками ниже." : "Микрофон активен. Можно включить камеру прямо во время звонка.";
+      if (isVideo){
+        callUi.localVideo.classList.remove("is-hidden");
+        callUi.localVideo.srcObject = stream;
+      } else {
+        callUi.localVideo.classList.add("is-hidden");
+        callUi.localVideo.srcObject = null;
+      }
+      callUi.overlay.classList.add("open");
+      callUi.overlay.setAttribute("aria-hidden", "false");
+      setStatus(isVideo ? "🎥 Видеозвонок" : "📞 Голосовой звонок");
+      updateCallUi();
+      addSystem(isVideo ? "📹 Видеозвонок запущен." : "📞 Голосовой звонок запущен.");
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
+  }
+
+  async function toggleCallCamera(){
+    if (!callState.active || !callState.stream) return;
+    if (callState.camOn){
+      callState.stream.getVideoTracks().forEach((track)=>{ track.enabled = false; track.stop(); callState.stream.removeTrack(track); });
+      callState.camOn = false;
+      callUi.localVideo.srcObject = null;
+      callUi.localVideo.classList.add("is-hidden");
+      updateCallUi();
+      return;
+    }
+    try{
+      const camera = await navigator.mediaDevices.getUserMedia({ video:true });
+      const [track] = camera.getVideoTracks();
+      if (!track) return;
+      callState.stream.addTrack(track);
+      callState.camOn = true;
+      callUi.localVideo.classList.remove("is-hidden");
+      callUi.localVideo.srcObject = new MediaStream([track]);
+      updateCallUi();
+    }catch(e){
+      addSystem("⚠️ Камера недоступна: " + (e.message || e));
+    }
+  }
+
+  function toggleCallMic(){
+    if (!callState.active || !callState.stream) return;
+    callState.micOn = !callState.micOn;
+    callState.stream.getAudioTracks().forEach((track)=> track.enabled = callState.micOn);
+    updateCallUi();
+  }
+
+  function endCall({ silent=false } = {}){
+    if (!callState.active) return;
+    try{ callState.stream?.getTracks().forEach((track)=> track.stop()); }catch(_){ }
+    callUi.localVideo.srcObject = null;
+    callUi.localVideo.classList.add("is-hidden");
+    callUi.overlay.classList.remove("open");
+    callUi.overlay.setAttribute("aria-hidden", "true");
+    if (!silent) addSystem("☎️ Звонок завершён.");
+    callState = { active:false, mode:"voice", stream:null, micOn:true, camOn:false };
+    setStatus(activeChatTitle ? `online • ${activeChatTitle}` : "—");
+  }
+
   function createMessageAvatar(sender, isMine, senderAvatarUrl){
     const initial = String(sender || "?").trim().charAt(0).toUpperCase() || "?";
     const preferredAvatar = (isMine ? avatarUrl : senderAvatarUrl) || senderAvatarUrl;
@@ -1185,6 +1279,7 @@
       $("msgs").innerHTML = "";
       addSystem("ℹ️ У тебя пока нет чатов. Создай групповой или личный чат.");
       setStatus("");
+      updateChatActionState();
       return;
     }
 
@@ -1201,6 +1296,7 @@
 
   function selectChat(chatId){
     stopAllExcept(null);
+    endCall({ silent:true });
     clearReply();
     msgElById.clear();
     lastMsgId = 0;
@@ -1221,6 +1317,7 @@
     $("chatHeadSub").textContent = activeChatType === "group" ? "Групповой чат" : "Личный чат";
     addSystem(`📌 Chat: ${activeChatTitle}`);
 
+    updateChatActionState();
     renderChatList();
     loadHistory();
     loadPins().catch(()=>{});
@@ -2204,8 +2301,6 @@ ${listText}
   function setWhoami(){
     $("whoText").textContent = token ? `@${me}` : "Не авторизован";
     toggleHidden($("btnOpenAuth"), !!token);
-    toggleHidden($("btnLogout"), !token);
-    toggleHidden($("btnProfile"), !token);
     if (!token) closeProfileMenu();
 
     const img = $("topAvatar");
@@ -2220,6 +2315,7 @@ ${listText}
 
   function logout(){
     stopAllExcept(null);
+    endCall({ silent:true });
     token = ""; refreshToken = ""; me = ""; avatarUrl = "";
     localStorage.removeItem("token");
     localStorage.removeItem("refresh_token");
@@ -2259,14 +2355,19 @@ ${listText}
 
   $("btnThemeToggle").onclick = () => toggleTheme();
   $("btnOpenAuth").onclick = () => openAuth("login");
-  $("btnLogout").onclick = () => logout();
-  $("btnProfile").onclick = () => openProfile();
   $("whoami").onclick = () => toggleProfileMenu();
   $("btnMenuMyProfile").onclick = () => { closeProfileMenu(); openProfile(); };
   $("btnMenuContacts").onclick = () => { closeProfileMenu(); openContacts(); };
   $("btnMenuLogout").onclick = () => { closeProfileMenu(); logout(); };
   $("btnContacts").onclick = () => openContacts();
   $("btnChatInfo").onclick = () => openChatInfo();
+  $("btnStartVoiceCall").onclick = () => startCall("voice");
+  $("btnStartVideoCall").onclick = () => startCall("video");
+  $("btnToggleCallMic").onclick = () => toggleCallMic();
+  $("btnToggleCallCamera").onclick = () => toggleCallCamera();
+  $("btnEndCall").onclick = () => endCall();
+  $("btnCloseCall").onclick = () => endCall({ silent:true });
+  $("callOverlay").addEventListener("click", (e)=>{ if (e.target === $("callOverlay")) endCall({ silent:true }); });
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
@@ -2386,6 +2487,7 @@ ${listText}
   // =========================
   syncSidebarTopOffset();
   initTheme();
+  updateChatActionState();
   setWhoami();
   requestNotificationPermissionIfNeeded();
 
