@@ -13,7 +13,6 @@
   let stories = [];
   let avatarHistory = [];
   let contacts = [];
-  let transcriptionEnabled = true;
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
@@ -253,33 +252,6 @@
     }
     if (!res.ok) throw new Error((data && data.detail) ? String(data.detail) : `${res.status} ${res.statusText}`);
     return data;
-  }
-
-
-  async function loadCapabilities(){
-    try{
-      const data = await api("/api/capabilities");
-      transcriptionEnabled = !!(data && data.transcription_enabled);
-    }catch(_){
-      transcriptionEnabled = true;
-    }
-  }
-
-  async function requestVoiceTranscript(mediaUrl, language="ru"){
-    const data = await api("/api/transcribe", "POST", {
-      media_url: mediaUrl,
-      language
-    });
-    return String((data && data.text) || "").trim();
-  }
-
-  function getTranscriptErrorMessage(err){
-    const raw = String((err && err.message) || err || "").trim();
-    if (!raw) return "Не удалось выполнить расшифровку.";
-    if (raw.includes("faster-whisper package is not installed") || raw.includes("Failed to initialize faster-whisper model")){
-      return "Расшифровка временно недоступна: faster-whisper не настроен на сервере.";
-    }
-    return `Ошибка расшифровки: ${raw}`;
   }
 
   // =========================
@@ -1384,57 +1356,6 @@
         const player = createVoicePlayer(media_url);
         wrap.appendChild(player.root);
 
-        const transcriptBox = document.createElement("div");
-        transcriptBox.style.marginTop = "8px";
-
-        const transcriptBtn = document.createElement("button");
-        transcriptBtn.className = "btn";
-        transcriptBtn.type = "button";
-        transcriptBtn.textContent = transcriptionEnabled ? "📝 Расшифровать" : "⚙️ Расшифровка недоступна";
-        transcriptBtn.disabled = !transcriptionEnabled;
-        transcriptBtn.style.padding = "6px 12px";
-        transcriptBtn.style.fontSize = "12px";
-
-        const transcriptText = document.createElement("div");
-        transcriptText.style.marginTop = "8px";
-        transcriptText.style.whiteSpace = "pre-wrap";
-        transcriptText.style.fontSize = "13px";
-        transcriptText.style.opacity = ".95";
-        if (!transcriptionEnabled){
-          transcriptText.style.display = "block";
-          transcriptText.textContent = "Сервер расшифровки недоступен. Проверьте настройки faster-whisper в backend.";
-        }
-
-        let transcriptLoaded = false;
-        transcriptBtn.onclick = async () => {
-          if (transcriptLoaded){
-            transcriptText.style.display = (transcriptText.style.display === "none") ? "block" : "none";
-            transcriptBtn.textContent = transcriptText.style.display === "none" ? "📝 Показать расшифровку" : "🙈 Скрыть расшифровку";
-            return;
-          }
-          transcriptBtn.disabled = true;
-          transcriptBtn.textContent = "⏳ Расшифровка…";
-          transcriptText.style.display = "block";
-          transcriptText.textContent = "Распознаём голос…";
-          try{
-            const text = await requestVoiceTranscript(media_url, "ru");
-            transcriptText.textContent = text || "(Пустой результат распознавания)";
-            transcriptLoaded = true;
-            transcriptBtn.textContent = "🙈 Скрыть расшифровку";
-          }catch(e){
-            const raw = String((e && e.message) || e || "");
-            transcriptText.textContent = getTranscriptErrorMessage(e);
-            transcriptBtn.textContent = (raw.includes("faster-whisper package is not installed") || raw.includes("Failed to initialize faster-whisper model"))
-              ? "⚙️ Расшифровка недоступна"
-              : "🔁 Повторить расшифровку";
-          }finally{
-            transcriptBtn.disabled = false;
-          }
-        };
-
-        transcriptBox.appendChild(transcriptBtn);
-        transcriptBox.appendChild(transcriptText);
-        wrap.appendChild(transcriptBox);
         div.appendChild(wrap);
       }
 
@@ -2481,8 +2402,6 @@ ${listText}
         localStorage.setItem("display_name", displayName || "");
         localStorage.setItem("profile_bio", profileBio || "");
         setWhoami();
-        await loadCapabilities();
-
         connectWS_GLOBAL();
         await refreshChats(true);
         loadStories().catch(()=>{});
