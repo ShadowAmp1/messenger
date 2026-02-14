@@ -1652,6 +1652,27 @@ async def ws_user(ws: WebSocket):
                     "message_id": mid,
                     "username": username,
                 })
+
+            elif t in {"call_offer", "call_answer", "call_reject", "call_end", "call_timeout"}:
+                chat_id = (data.get("chat_id") or "").strip()
+                call_id = str(data.get("call_id") or "").strip()
+                mode = str(data.get("mode") or "voice").strip().lower()
+                if not chat_id or not call_id:
+                    continue
+                with db() as conn:
+                    if not is_member(conn, chat_id, username):
+                        continue
+                payload = {
+                    "type": t,
+                    "chat_id": chat_id,
+                    "call_id": call_id,
+                    "mode": "video" if mode == "video" else "voice",
+                    "username": username,
+                    "started_at": int(data.get("started_at") or now_ts()),
+                    "duration": int(data.get("duration") or 0),
+                    "reason": str(data.get("reason") or "").strip(),
+                }
+                await broadcast_chat(chat_id, payload)
     except WebSocketDisconnect:
         pass
     finally:
