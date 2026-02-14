@@ -600,6 +600,7 @@ def _is_allowed_media_url(url: str) -> bool:
 def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt: Optional[str] = None) -> str:
     api_key = get_openai_api_key()
     if not api_key:
+    if not OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="Transcription service is not configured")
     if not _is_allowed_media_url(media_url):
         raise HTTPException(status_code=400, detail="Unsupported media_url host")
