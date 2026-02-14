@@ -40,6 +40,7 @@
   let ws = null;
 
   let chats = [];
+  let activeChatFilter = "all";
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
   let activeChatType = "";
@@ -1056,18 +1057,35 @@
     return (c.created_by === me);
   }
 
+  function getFilteredChats(){
+    const q = ($("chatSearch")?.value || "").trim().toLowerCase();
+    return chats.filter((c)=>{
+      const title = computeChatTitle(c).toLowerCase();
+      const lastText = String(c.last_text || "").toLowerCase();
+      const sender = String(c.last_sender || "").toLowerCase();
+      const unread = Number(c.unread || 0) > 0;
+      const passFilter = activeChatFilter === "all"
+        || (activeChatFilter === "dm" && c.type === "dm")
+        || (activeChatFilter === "group" && c.type === "group")
+        || (activeChatFilter === "unread" && unread);
+      const passSearch = !q || title.includes(q) || lastText.includes(q) || sender.includes(q);
+      return passFilter && passSearch;
+    });
+  }
+
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
-    if (!chats.length){
+    const visibleChats = getFilteredChats();
+    if (!visibleChats.length){
       const div = document.createElement("div");
       div.className = "small";
-      div.textContent = "Нет чатов. Создай ➕ или 💬";
+      div.textContent = chats.length ? "Ничего не найдено" : "Нет чатов. Создай ➕ или 💬";
       list.appendChild(div);
       return;
     }
 
-    for (const c of chats){
+    for (const c of visibleChats){
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
 
@@ -2224,6 +2242,14 @@
   $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
   $("btnInvite").onclick = () => inviteUser();
   $("btnMute").onclick = () => muteChat();
+  $("chatSearch").addEventListener("input", ()=> renderChatList());
+  document.querySelectorAll(".chat-filter").forEach((btn)=>{
+    btn.addEventListener("click", ()=>{
+      activeChatFilter = btn.dataset.filter || "all";
+      document.querySelectorAll(".chat-filter").forEach((el)=> el.classList.toggle("is-active", el === btn));
+      renderChatList();
+    });
+  });
 
   $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };

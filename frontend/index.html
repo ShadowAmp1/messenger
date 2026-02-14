@@ -62,6 +62,16 @@
 
             <div class="sep"></div>
 
+            <div class="sidebar-search-wrap">
+              <input id="chatSearch" class="sidebar-search" type="search" placeholder="Поиск" aria-label="Поиск по чатам" />
+              <div class="chat-filters" role="tablist" aria-label="Фильтр чатов">
+                <button class="chat-filter is-active" data-filter="all" type="button">Все</button>
+                <button class="chat-filter" data-filter="dm" type="button">Личные</button>
+                <button class="chat-filter" data-filter="group" type="button">Группы</button>
+                <button class="chat-filter" data-filter="unread" type="button">Новые</button>
+              </div>
+            </div>
+
             <div class="chatlist" id="chatlist"></div>
 
             <div class="small mt-auto">
