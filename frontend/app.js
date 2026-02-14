@@ -134,16 +134,26 @@
   function setNet(s){ $("net").textContent = s || "не в сети"; }
 
   function addSystem(text){
-    const box = $("msgs");
-    const div = document.createElement("div");
-    div.className = "msg";
-    div.innerHTML = `
-      <div class="meta"><b>System</b><span>—</span></div>
-      <div>${String(text||"")}</div>
-    `;
-    box.appendChild(div);
-    scrollToBottom(box);
-    updateToBottom();
+    showSystemToast(text);
+  }
+
+  function showSystemToast(text, ttlMs = 0){
+    const host = $("systemToasts");
+    if (!host) return;
+    const toast = document.createElement("div");
+    toast.className = "system-toast";
+    toast.textContent = String(text || "").trim() || "System";
+    host.appendChild(toast);
+
+    const life = ttlMs > 0 ? ttlMs : (5000 + Math.floor(Math.random() * 3001));
+    const fadeAt = Math.max(0, life - 280);
+    window.setTimeout(() => toast.classList.add("hide"), fadeAt);
+    window.setTimeout(() => toast.remove(), life + 120);
+  }
+
+  function isSystemSender(message){
+    const sender = String(message?.sender || message?.username || "").trim().toLowerCase();
+    return sender === "system";
   }
 
   function fmtTs(ts){
@@ -1235,7 +1245,14 @@
   // =========================
   // Messages: render/edit/delete
   // =========================
-  function addMsg(m){
+  function addMsg(m, opts = {}){
+    if (isSystemSender(m)){
+      if (opts.notifySystem !== false){
+        showSystemToast(m.text || "Системное сообщение");
+      }
+      return;
+    }
+
     const box = $("msgs");
     const row = document.createElement("div");
     row.className = "msg-row" + ((m.sender === me) ? " me" : "");
@@ -1496,7 +1513,7 @@
     try{
       const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
       box.innerHTML = "";
-      for (const m of (data.messages || [])) addMsg(m);
+      for (const m of (data.messages || [])) addMsg(m, { notifySystem: false });
       scrollToBottom(box);
       updateToBottom();
       maybeMarkRead();
