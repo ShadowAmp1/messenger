@@ -329,15 +329,34 @@
       position: relative;
     }
     .chat-head{
-      border:0;
       border-bottom:1px solid var(--border);
       background:var(--card);
       color:var(--text);
-      text-align:left;
       padding:10px 12px;
-      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
     }
-    .chat-head:hover{ background:var(--surface); }
+    .chat-head-info{
+      border:0;
+      background:transparent;
+      color:var(--text);
+      text-align:left;
+      padding:6px 4px;
+      border-radius:12px;
+      cursor:pointer;
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .chat-head-info:hover{ background:var(--surface); }
+    .chat-head-actions{ display:flex; gap:8px; flex:0 0 auto; }
+    .chat-head-actions .iconbtn{
+      width:38px;
+      height:38px;
+      border-radius:11px;
+      background:color-mix(in srgb, var(--input) 82%, var(--surface));
+    }
     .msgs{
       flex: 1 1 auto;
       min-height: 0;
@@ -693,19 +712,21 @@
     .overlay{
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,.55);
+      background: color-mix(in srgb, #071724 72%, transparent);
       display:none;
       align-items:center;
       justify-content:center;
       padding: 14px;
       z-index: 60;
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
     }
     .overlay.open{ display:flex; }
     .modal{
       width: min(440px, 100%);
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: 16px;
       box-shadow: var(--shadow);
       overflow:hidden;
     }
@@ -791,22 +812,48 @@
     .sheet-overlay{
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,.55);
+      background: color-mix(in srgb, #071724 68%, transparent);
       display:none;
       align-items:flex-end;
       justify-content:center;
       padding: 14px;
       z-index: 55;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
     }
     .sheet-overlay.open{ display:flex; }
     .sheet{
       width: min(560px, 100%);
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: 16px;
       box-shadow: var(--shadow);
       overflow:hidden;
     }
+    .call-modal{ width:min(520px, 100%); }
+    #callMeta{ font-weight:600; }
+    .call-local-video{
+      width:100%;
+      max-height:280px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#000;
+      object-fit:cover;
+    }
+    .call-event{
+      border:1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
+      background: color-mix(in srgb, var(--surface) 86%, var(--primary));
+      border-radius:14px;
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .call-event-main{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+    .call-event-title{ font-weight:700; color:var(--text-strong); }
+    .call-event-sub{ font-size:13px; color:var(--muted); }
+    .call-event-icon{ font-size:18px; color:var(--telegram-blue); }
     .sheet-top{
       display:flex;
       align-items:center;
