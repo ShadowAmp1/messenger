@@ -366,6 +366,12 @@ def get_member_role(conn, chat_id: str, username: str) -> Optional[str]:
 
 
 def can_moderate(conn, chat_id: str, username: str) -> bool:
+    chat = get_chat(conn, chat_id)
+    if not chat:
+        return False
+    if chat["type"] == "dm":
+        # In 1:1 chats both participants have equal admin privileges.
+        return is_member(conn, chat_id, username)
     role = get_member_role(conn, chat_id, username)
     return role in ("owner", "admin")
 
@@ -1170,7 +1176,7 @@ def create_dm_chat(data: DMCreateIn, username: str = Depends(get_current_usernam
                     VALUES (%s,%s,%s,%s)
                     ON CONFLICT (chat_id, username) DO NOTHING
                     """,
-                    (chat_id, u, "member", now),
+                    (chat_id, u, "admin", now),
                 )
                 cur.execute(
                     """
@@ -1456,7 +1462,7 @@ def chat_overview(
 
             cur.execute(
                 """
-                SELECT media_kind, media_url, media_name, sender, created_at
+                SELECT id, media_kind, media_url, media_name, sender, created_at
                 FROM messages
                 WHERE chat_id=%s
                   AND deleted_for_all=FALSE
