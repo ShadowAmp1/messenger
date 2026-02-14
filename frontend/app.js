@@ -1890,7 +1890,54 @@
     const msgs = data.messages || [];
     chatInfoState.data = data;
     $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
-    renderChatInfoTab();
+
+    const mediaBox = $("chatInfoMedia");
+    mediaBox.innerHTML = `<b>Медиа:</b>`;
+    if (!media.length){
+      mediaBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      const wrap = document.createElement("div");
+      wrap.className = "overview-grid";
+      for (const m of media){
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "overview-item";
+        const title = m.media_name || m.media_kind || "Файл";
+        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
+        card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
+        wrap.appendChild(card);
+      }
+      mediaBox.appendChild(wrap);
+    }
+
+    const linksBox = $("chatInfoLinks");
+    linksBox.innerHTML = `<b>Ссылки:</b>`;
+    if (!links.length){
+      linksBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      for (const l of links){
+        const raw = String((l.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
+        const url = raw ? (raw.startsWith("http") ? raw : `https://${raw}`) : "";
+        const row = document.createElement("div");
+        row.className = "small";
+        row.innerHTML = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(raw)}</a>` : escapeHtml((l.text||'').slice(0,90));
+        linksBox.appendChild(row);
+      }
+    }
+
+    const membersBox = $("chatInfoMembers");
+    membersBox.innerHTML = `<b>Участники:</b>`;
+    const memberWrap = document.createElement("div");
+    memberWrap.className = "overview-grid";
+    for (const m of members){
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "overview-item";
+      card.innerHTML = `<div><b>${escapeHtml(m.display_name || m.username)}</b></div><div class="small">@${escapeHtml(m.username || '')} • ${m.online ? 'в сети' : 'не в сети'}</div>`;
+      card.onclick = () => openUserProfile(m.username);
+      memberWrap.appendChild(card);
+    }
+    membersBox.appendChild(memberWrap);
   }
 
   // =========================
@@ -2188,7 +2235,6 @@
       closeSheet();
       closeProfile();
       closeProfileMenu();
-      closeMediaViewer();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
