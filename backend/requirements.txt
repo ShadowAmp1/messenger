@@ -2,10 +2,5 @@ fastapi==0.115.8
 uvicorn[standard]==0.30.6
 pydantic==2.10.6
 python-multipart==0.0.9
-fastapi
-uvicorn[standard]
-python-multipart
 psycopg[binary]
 cloudinary
-
-
