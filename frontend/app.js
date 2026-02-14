@@ -1144,11 +1144,13 @@
     const meta = document.createElement("div");
     meta.className = "meta";
 
+    const messageAuthor = String(m.sender || m.username || "").trim();
+
     const left = document.createElement("button");
     left.type = "button";
     left.className = "sender-link";
-    left.textContent = m.sender || "—";
-    left.onclick = () => openUserProfile(m.sender);
+    left.textContent = messageAuthor || "—";
+    left.onclick = () => openUserProfile(messageAuthor);
     const right = document.createElement("span");
     right.textContent = fmtTs(m.created_at);
 
@@ -1181,7 +1183,19 @@
         rep.className = "reply-preview";
         rep.dataset.replyToId = String(m.reply_to_id);
         const t = (m.reply_text || "").trim();
-        rep.textContent = `↪ ${m.reply_sender || "user"}: ${t ? t.slice(0,80) : "[media]"}`;
+        const replySender = String(m.reply_sender || "user").trim();
+        const nickBtn = document.createElement("button");
+        nickBtn.type = "button";
+        nickBtn.className = "sender-link";
+        nickBtn.textContent = `↪ ${replySender}`;
+        nickBtn.onclick = (e) => {
+          e.stopPropagation();
+          openUserProfile(replySender);
+        };
+        const previewText = document.createElement("span");
+        previewText.textContent = `: ${t ? t.slice(0,80) : "[media]"}`;
+        rep.appendChild(nickBtn);
+        rep.appendChild(previewText);
         rep.onclick = () => jumpToMessage(Number(m.reply_to_id));
         div.appendChild(rep);
       }
@@ -1265,10 +1279,10 @@
     msgElById.set(m.id, div);
     lastMsgId = Math.max(lastMsgId, Number(m.id||0));
 
-    const avatarNode = createMessageAvatar(m.sender, m.sender === me, m.sender_avatar_url);
+    const avatarNode = createMessageAvatar(messageAuthor, messageAuthor === me, m.sender_avatar_url);
     avatarNode.classList.add("clickable");
-    avatarNode.onclick = () => openUserProfile(m.sender);
-    if (m.sender === me){
+    avatarNode.onclick = () => openUserProfile(messageAuthor);
+    if (messageAuthor === me){
       row.appendChild(div);
       row.appendChild(avatarNode);
     } else {
