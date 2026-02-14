@@ -1862,14 +1862,35 @@
       return;
     }
     for (const c of contacts){
-      const row = document.createElement('button');
-      row.type = 'button';
+      const row = document.createElement('div');
       row.className = 'chatitem';
-      row.innerHTML = `<div><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
-      row.onclick = async ()=>{
+      row.innerHTML = `<div class="left"><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
+
+      const actions = document.createElement('div');
+      actions.className = 'contact-actions';
+
+      const profileBtn = document.createElement('button');
+      profileBtn.type = 'button';
+      profileBtn.className = 'btn contact-action-btn';
+      profileBtn.textContent = 'Профиль';
+      profileBtn.onclick = async ()=>{
         closeContacts();
         await openUserProfile(c.username);
       };
+
+      const dmBtn = document.createElement('button');
+      dmBtn.type = 'button';
+      dmBtn.className = 'btn contact-action-btn';
+      dmBtn.textContent = 'SMS';
+      dmBtn.title = `Написать @${c.username}`;
+      dmBtn.onclick = async ()=>{
+        closeContacts();
+        await createDM(c.username);
+      };
+
+      actions.appendChild(profileBtn);
+      actions.appendChild(dmBtn);
+      row.appendChild(actions);
       list.appendChild(row);
     }
   }
