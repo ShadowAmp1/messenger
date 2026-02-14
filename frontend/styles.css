@@ -117,8 +117,39 @@
       align-items:center;
       gap:8px;
     }
+    .pill-btn{
+      cursor:pointer;
+      color:inherit;
+      font:inherit;
+    }
+    .profile-menu{
+      position:absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 220px;
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      display:none;
+      padding:8px;
+      z-index: 120;
+    }
+    .profile-menu.open{ display:flex; flex-direction:column; gap:4px; }
+    .profile-menu-item{
+      width:100%;
+      border:0;
+      border-radius: 10px;
+      background: transparent;
+      color:var(--text);
+      text-align:left;
+      padding:10px;
+      cursor:pointer;
+    }
+    .profile-menu-item:hover{ background: var(--surface); }
     .small{ font-size:12px; opacity:.85; color: var(--muted); }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .top-controls{ position:relative; }
     .btn{
       padding: 10px 14px;
       border-radius: 999px;
@@ -368,6 +399,42 @@
       cursor:pointer;
     }
     .overview-item:hover{ filter:brightness(1.08); }
+    .chat-info-tabs{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .chat-info-tab{
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      border-radius:999px;
+      padding:8px 12px;
+      cursor:pointer;
+      font-size:13px;
+    }
+    .chat-info-tab.active{
+      border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+      background: color-mix(in srgb, var(--primary) 20%, var(--surface));
+      font-weight:700;
+    }
+    .chat-info-list{ min-height:140px; }
+    .profile-story{
+      display:flex;
+      flex-direction:column;
+      align-items:stretch;
+      gap:8px;
+      cursor:default;
+    }
+    .profile-story-media{
+      width:100%;
+      max-height:240px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      object-fit:cover;
+      background:var(--surface);
+    }
+    .profile-story-video{ width:100%; max-height:240px; border-radius:10px; border:1px solid var(--border); background:#000; }
     .avatar-large{
       width:82px;
       height:82px;
@@ -575,6 +642,16 @@
       border-radius: 14px;
       box-shadow: var(--shadow);
       overflow:hidden;
+    }
+    .media-viewer{ width:min(900px, 100%); }
+    #mediaViewerContent{ display:flex; align-items:center; justify-content:center; min-height:240px; }
+    #mediaViewerContent img, #mediaViewerContent video{
+      max-width:100%;
+      max-height:min(78vh, 720px);
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:#000;
+      object-fit:contain;
     }
     .modal-top{
       display:flex;
