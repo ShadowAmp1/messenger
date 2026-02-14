@@ -202,6 +202,29 @@
     </div>
   </div>
 
+
+
+  <!-- USER PROFILE -->
+  <div class="sheet-overlay" id="userProfileOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b id="userProfileTitle">Профиль</b>
+        <button class="xbtn" id="btnCloseUserProfile" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <img id="userProfileAvatar" class="avatar-large" alt="avatar" style="display:none;"/>
+        <div class="small" id="userProfileHandle">@user</div>
+        <div class="small" id="userProfileBio">—</div>
+        <div class="sep"></div>
+        <b>Истории</b>
+        <div id="userProfileStories" class="chatlist"></div>
+        <div class="sep"></div>
+        <b>Аватары (новые и старые)</b>
+        <div id="userProfileAvatars" class="chatlist"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- VOICE PREVIEW -->
   <div class="overlay" id="voicePreviewOverlay" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">

@@ -703,6 +703,7 @@
   }
 
   const profile = { overlay: $("profileOverlay") };
+  const userProfile = { overlay: $("userProfileOverlay"), activeUsername: "" };
   function openProfile(){
     if (!token) return openAuth("login");
     $("profileHint").textContent = `@${me}`;
@@ -716,6 +717,94 @@
   function closeProfile(){
     profile.overlay.classList.remove("open");
     profile.overlay.setAttribute("aria-hidden","true");
+  }
+
+  function closeUserProfile(){
+    userProfile.overlay.classList.remove("open");
+    userProfile.overlay.setAttribute("aria-hidden","true");
+    userProfile.activeUsername = "";
+  }
+
+  async function openUserProfile(username){
+    const target = String(username || "").trim();
+    if (!target) return;
+    if (!token) return openAuth("login");
+    try{
+      const data = await api(`/api/users/${encodeURIComponent(target)}/profile`);
+      const user = data.user || {};
+      const profileName = user.display_name || user.username || target;
+      userProfile.activeUsername = target;
+      $("userProfileTitle").textContent = profileName;
+      $("userProfileHandle").textContent = `@${user.username || target}`;
+      $("userProfileBio").textContent = user.bio || "Без описания";
+      $("userProfileAvatar").src = user.avatar_url || "";
+      $("userProfileAvatar").style.display = user.avatar_url ? "block" : "none";
+
+      const storiesBox = $("userProfileStories");
+      const userStories = data.stories || [];
+      storiesBox.innerHTML = "";
+      if (!userStories.length){
+        storiesBox.innerHTML = '<div class="small">Активных историй нет</div>';
+      } else {
+        for (const story of userStories){
+          const row = document.createElement("div");
+          row.className = "chatitem";
+          row.innerHTML = `<div><div class="title">${escapeHtml(story.caption || 'История')}</div><div class="sub">${new Date((story.created_at||0)*1000).toLocaleString()}</div></div>`;
+          row.onclick = () => window.open(story.media_url, "_blank");
+          if (data.can_manage){
+            const del = document.createElement("button");
+            del.className = "trash";
+            del.textContent = "🗑";
+            del.title = "Удалить историю";
+            del.onclick = async (e)=>{
+              e.stopPropagation();
+              await api(`/api/stories/${story.id}`, "DELETE");
+              await openUserProfile(target);
+              if (target === me) await loadStories();
+            };
+            row.appendChild(del);
+          }
+          storiesBox.appendChild(row);
+        }
+      }
+
+      const avatarBox = $("userProfileAvatars");
+      const avatarItems = [];
+      if (user.avatar_url){
+        avatarItems.push({ id: null, avatar_url: user.avatar_url, created_at: Math.floor(Date.now()/1000), current: true });
+      }
+      for (const item of (data.avatar_history || [])) avatarItems.push(item);
+      avatarBox.innerHTML = "";
+      if (!avatarItems.length){
+        avatarBox.innerHTML = '<div class="small">Аватаров пока нет</div>';
+      } else {
+        for (const item of avatarItems){
+          const row = document.createElement("div");
+          row.className = "chatitem";
+          row.innerHTML = `<div><div class="title">${item.current ? 'Текущий аватар' : 'Аватар'}</div><div class="sub">${item.current ? 'актуальный' : new Date((item.created_at||0)*1000).toLocaleString()}</div></div>`;
+          row.onclick = () => window.open(item.avatar_url, "_blank");
+          if (data.can_manage && item.id){
+            const del = document.createElement("button");
+            del.className = "trash";
+            del.textContent = "🗑";
+            del.title = "Удалить из истории";
+            del.onclick = async (e)=>{
+              e.stopPropagation();
+              await api(`/api/avatar/history/${item.id}`, "DELETE");
+              await openUserProfile(target);
+              if (target === me) await loadAvatarHistory();
+            };
+            row.appendChild(del);
+          }
+          avatarBox.appendChild(row);
+        }
+      }
+
+      userProfile.overlay.classList.add("open");
+      userProfile.overlay.setAttribute("aria-hidden","false");
+    }catch(e){
+      addSystem("❌ " + (e.message || e));
+    }
   }
 
   // =========================
@@ -1055,8 +1144,11 @@
     const meta = document.createElement("div");
     meta.className = "meta";
 
-    const left = document.createElement("b");
+    const left = document.createElement("button");
+    left.type = "button";
+    left.className = "sender-link";
     left.textContent = m.sender || "—";
+    left.onclick = () => openUserProfile(m.sender);
     const right = document.createElement("span");
     right.textContent = fmtTs(m.created_at);
 
@@ -1174,6 +1266,8 @@
     lastMsgId = Math.max(lastMsgId, Number(m.id||0));
 
     const avatarNode = createMessageAvatar(m.sender, m.sender === me, m.sender_avatar_url);
+    avatarNode.classList.add("clickable");
+    avatarNode.onclick = () => openUserProfile(m.sender);
     if (m.sender === me){
       row.appendChild(div);
       row.appendChild(avatarNode);
@@ -1476,7 +1570,37 @@
     const box = $("myStories");
     const hist = document.createElement('div');
     hist.style.marginTop = '8px';
-    hist.innerHTML = `<b>Предыдущие аватары:</b> ${avatarHistory.length ? avatarHistory.map(a=>`<a href="${escapeHtml(a.avatar_url)}" target="_blank">${new Date((a.created_at||0)*1000).toLocaleDateString()}</a>`).join(' • ') : 'нет'}`;
+    if (!avatarHistory.length){
+      hist.innerHTML = '<b>Предыдущие аватары:</b> нет';
+      box.appendChild(hist);
+      return;
+    }
+    hist.innerHTML = '<b>Предыдущие аватары:</b>';
+    const list = document.createElement('div');
+    list.className = 'overview-grid';
+    for (const item of avatarHistory){
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'overview-item';
+      row.innerHTML = `<div class="small">${new Date((item.created_at||0)*1000).toLocaleString()}</div>`;
+      row.onclick = ()=>window.open(item.avatar_url, '_blank');
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn danger';
+      del.textContent = 'Удалить';
+      del.onclick = async (e)=>{
+        e.stopPropagation();
+        await api(`/api/avatar/history/${item.id}`, 'DELETE');
+        await loadStories();
+        await loadAvatarHistory();
+      };
+      const wrap = document.createElement('div');
+      wrap.className = 'row';
+      wrap.appendChild(row);
+      wrap.appendChild(del);
+      list.appendChild(wrap);
+    }
+    hist.appendChild(list);
     box.appendChild(hist);
   }
 
@@ -1492,7 +1616,7 @@
       const item = document.createElement("button");
       item.className = "story-item";
       item.innerHTML = `<img src="${s.avatar_url || ''}" alt="${username}" /><span>${s.display_name || username}</span>`;
-      item.onclick = () => window.open(s.media_url, "_blank");
+      item.onclick = () => openUserProfile(username);
       bar.appendChild(item);
     }
   }
@@ -1583,10 +1707,56 @@
     const media = data.media || [];
     const links = data.links || [];
     const members = data.members || [];
+
     $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
-    $("chatInfoMedia").innerHTML = `<b>Вложения:</b> ${media.length}`;
-    $("chatInfoLinks").innerHTML = `<b>Ссылки:</b><br>${links.map(l=>escapeHtml((l.text||'').slice(0,90))).join('<br>') || 'нет'}`;
-    $("chatInfoMembers").innerHTML = `<b>Участники:</b><br>${members.map(m=>`${escapeHtml(m.display_name)} (${m.online ? 'в сети' : 'не в сети'})`).join('<br>')}`;
+
+    const mediaBox = $("chatInfoMedia");
+    mediaBox.innerHTML = `<b>Медиа:</b>`;
+    if (!media.length){
+      mediaBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      const wrap = document.createElement("div");
+      wrap.className = "overview-grid";
+      for (const m of media){
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "overview-item";
+        const title = m.media_name || m.media_kind || "Файл";
+        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
+        card.onclick = () => window.open(m.media_url, "_blank");
+        wrap.appendChild(card);
+      }
+      mediaBox.appendChild(wrap);
+    }
+
+    const linksBox = $("chatInfoLinks");
+    linksBox.innerHTML = `<b>Ссылки:</b>`;
+    if (!links.length){
+      linksBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+    } else {
+      for (const l of links){
+        const raw = String((l.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
+        const url = raw ? (raw.startsWith("http") ? raw : `https://${raw}`) : "";
+        const row = document.createElement("div");
+        row.className = "small";
+        row.innerHTML = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(raw)}</a>` : escapeHtml((l.text||'').slice(0,90));
+        linksBox.appendChild(row);
+      }
+    }
+
+    const membersBox = $("chatInfoMembers");
+    membersBox.innerHTML = `<b>Участники:</b>`;
+    const memberWrap = document.createElement("div");
+    memberWrap.className = "overview-grid";
+    for (const m of members){
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "overview-item";
+      card.innerHTML = `<div><b>${escapeHtml(m.display_name || m.username)}</b></div><div class="small">@${escapeHtml(m.username || '')} • ${m.online ? 'в сети' : 'не в сети'}</div>`;
+      card.onclick = () => openUserProfile(m.username);
+      memberWrap.appendChild(card);
+    }
+    membersBox.appendChild(memberWrap);
   }
 
   // =========================
@@ -1817,6 +1987,7 @@
   $("sheetInput").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
   $("btnCloseProfile").onclick = () => closeProfile();
+  $("btnCloseUserProfile").onclick = () => closeUserProfile();
   $("btnCloseContacts").onclick = () => closeContacts();
   $("btnCloseChatInfo").onclick = () => closeChatInfo();
   $("btnAddContact").onclick = () => addContact().catch(e=> addSystem("❌ " + (e.message || e)));
@@ -1824,6 +1995,7 @@
   $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
+  $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
   $("btnUploadAvatar").onclick = () => uploadAvatar();
   $("btnSaveProfile").onclick = () => saveProfile();
   $("btnUploadStory").onclick = () => uploadStory();
