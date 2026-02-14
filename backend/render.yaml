@@ -7,7 +7,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_TRANSCRIBE_MODEL
-        value: gpt-4o-mini-transcribe
+      - key: WHISPER_MODEL_SIZE
+        value: small
+      - key: WHISPER_DEVICE
+        value: cpu
+      - key: WHISPER_COMPUTE_TYPE
+        value: int8
+      - key: WHISPER_BEAM_SIZE
+        value: 1
