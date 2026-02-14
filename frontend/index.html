@@ -200,9 +200,15 @@
         <button id="btnChatInfoSearch" class="btn" type="button">Поиск</button>
         <div id="chatInfoResults" class="small"></div>
         <div class="sep"></div>
-        <div class="small" id="chatInfoMedia"></div>
-        <div class="small" id="chatInfoLinks"></div>
-        <div class="small" id="chatInfoMembers"></div>
+
+        <div class="chat-info-tabs" role="tablist" aria-label="Категории">
+          <button class="chat-info-tab active" id="chatInfoTabMedia" data-tab="media" type="button" role="tab" aria-selected="true">Медиа</button>
+          <button class="chat-info-tab" id="chatInfoTabFiles" data-tab="files" type="button" role="tab" aria-selected="false">Файлы</button>
+          <button class="chat-info-tab" id="chatInfoTabVoice" data-tab="voice" type="button" role="tab" aria-selected="false">Голосовые</button>
+          <button class="chat-info-tab" id="chatInfoTabLinks" data-tab="links" type="button" role="tab" aria-selected="false">Ссылки</button>
+        </div>
+
+        <div class="chat-info-list" id="chatInfoTabList"></div>
       </div>
     </div>
   </div>

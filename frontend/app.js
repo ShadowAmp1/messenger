@@ -1805,11 +1805,78 @@
     await loadContacts();
   }
 
+  const chatInfoState = { activeTab: "media", data: null };
+
+  function setChatInfoTab(tab){
+    chatInfoState.activeTab = tab;
+    document.querySelectorAll(".chat-info-tab").forEach((btn)=>{
+      const active = btn.dataset.tab === tab;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    renderChatInfoTab();
+  }
+
+  function renderChatInfoTab(){
+    const list = $("chatInfoTabList");
+    const data = chatInfoState.data || {};
+    const media = data.media || [];
+    const links = data.links || [];
+
+    const mediaOnly = media.filter((m)=> ["image", "video"].includes(String(m.media_kind || "").toLowerCase()));
+    const voiceOnly = media.filter((m)=> String(m.media_kind || "").toLowerCase() === "audio");
+    const filesOnly = media.filter((m)=> !["image", "video", "audio"].includes(String(m.media_kind || "").toLowerCase()));
+
+    const map = {
+      media: { title: "Медиа", items: mediaOnly, empty: "В чате пока нет фото/видео" },
+      files: { title: "Файлы", items: filesOnly, empty: "В чате пока нет файлов" },
+      voice: { title: "Голосовые", items: voiceOnly, empty: "В чате пока нет голосовых" },
+      links: { title: "Ссылки", items: links, empty: "В чате пока нет ссылок" },
+    };
+
+    const current = map[chatInfoState.activeTab] || map.media;
+    list.innerHTML = `<b>${current.title}:</b>`;
+
+    if (!current.items.length){
+      list.insertAdjacentHTML("beforeend", `<div class="small">${current.empty}</div>`);
+      return;
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "overview-grid";
+
+    for (const item of current.items){
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "overview-item";
+
+      if (chatInfoState.activeTab === "links"){
+        const raw = String((item.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
+        card.innerHTML = `<div><b>${escapeHtml(raw || "Ссылка")}</b></div><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
+        card.onclick = async () => {
+          closeChatInfo();
+          await openMessageById(item.id);
+        };
+      } else {
+        const title = item.media_name || item.media_kind || "Файл";
+        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
+        card.onclick = async () => {
+          closeChatInfo();
+          await openMessageById(item.id);
+        };
+      }
+
+      wrap.appendChild(card);
+    }
+    list.appendChild(wrap);
+  }
+
   async function openChatInfo(){
     if (!activeChatId) return;
     $("chatInfoOverlay").classList.add('open');
     $("chatInfoOverlay").setAttribute('aria-hidden','false');
     $("chatInfoTitle").textContent = activeChatTitle;
+    setChatInfoTab("media");
     await loadChatOverview('');
   }
 
@@ -1821,10 +1888,7 @@
   async function loadChatOverview(keyword){
     const data = await api(`/api/chats/${encodeURIComponent(activeChatId)}/overview?q=${encodeURIComponent(keyword||'')}`);
     const msgs = data.messages || [];
-    const media = data.media || [];
-    const links = data.links || [];
-    const members = data.members || [];
-
+    chatInfoState.data = data;
     $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
 
     const mediaBox = $("chatInfoMedia");
@@ -2114,6 +2178,9 @@
   $("btnCloseChatInfo").onclick = () => closeChatInfo();
   $("btnAddContact").onclick = () => addContact().catch(e=> addSystem("❌ " + (e.message || e)));
   $("btnChatInfoSearch").onclick = () => loadChatOverview($("chatInfoSearch").value.trim()).catch(e=> addSystem("❌ " + (e.message || e)));
+  document.querySelectorAll(".chat-info-tab").forEach((btn)=>{
+    btn.onclick = () => setChatInfoTab(btn.dataset.tab || "media");
+  });
   $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
