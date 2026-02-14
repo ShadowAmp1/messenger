@@ -887,7 +887,7 @@ def list_avatar_history(username: str = Depends(get_current_username)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT avatar_url, created_at
+                SELECT id, avatar_url, created_at
                 FROM user_avatar_history
                 WHERE username=%s
                 ORDER BY created_at DESC
@@ -897,6 +897,70 @@ def list_avatar_history(username: str = Depends(get_current_username)):
             )
             rows = cur.fetchall()
     return {"items": rows}
+
+
+@app.delete("/api/avatar/history/{item_id}")
+def delete_avatar_history_item(item_id: int, username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM user_avatar_history WHERE id=%s AND username=%s",
+                (item_id, username),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Avatar history item not found")
+        conn.commit()
+    return {"ok": True}
+
+
+@app.get("/api/users/{target_username}/profile")
+def user_profile(target_username: str, username: str = Depends(get_current_username)):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT username, avatar_url,
+                       COALESCE(NULLIF(display_name, ''), username) AS display_name,
+                       bio
+                FROM users
+                WHERE username=%s
+                """,
+                (target_username,),
+            )
+            user_row = cur.fetchone()
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            cur.execute(
+                """
+                SELECT id, media_url, media_kind, caption, created_at, expires_at
+                FROM stories
+                WHERE username=%s AND expires_at > %s
+                ORDER BY created_at DESC
+                LIMIT 40
+                """,
+                (target_username, now_ts()),
+            )
+            story_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, avatar_url, created_at
+                FROM user_avatar_history
+                WHERE username=%s
+                ORDER BY created_at DESC
+                LIMIT 40
+                """,
+                (target_username,),
+            )
+            avatar_rows = cur.fetchall()
+
+    return {
+        "user": user_row,
+        "stories": story_rows,
+        "avatar_history": avatar_rows,
+        "can_manage": target_username == username,
+    }
 
 
 @app.get("/api/contacts")
