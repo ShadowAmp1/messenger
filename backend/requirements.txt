@@ -4,4 +4,3 @@ pydantic==2.10.6
 python-multipart==0.0.9
 psycopg[binary]
 cloudinary
-faster-whisper>=1.0.3
