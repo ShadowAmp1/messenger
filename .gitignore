@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+backend/.venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Databases
+*.db
+backend/app.db
+
+# Logs
+*.log
+logs/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
