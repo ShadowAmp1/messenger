@@ -1601,6 +1601,15 @@
     setTimeout(()=> target.classList.remove("flash"), 1400);
   }
 
+  async function openMessageById(messageId){
+    const id = Number(messageId);
+    if (!id) return;
+    if (!msgElById.has(id)){
+      await loadHistory();
+    }
+    jumpToMessage(id);
+  }
+
   async function saveProfile(){
     try{
       const display_name = $("profileDisplayName").value.trim();
