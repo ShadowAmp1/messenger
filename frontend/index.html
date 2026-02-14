@@ -29,9 +29,7 @@
             <span id="whoText">Не авторизован</span>
           </button>
           <button class="btn" id="btnThemeToggle" type="button" aria-label="Переключить тему">🌙 Тема</button>
-          <button class="btn is-hidden" id="btnProfile" type="button">Профиль</button>
           <button class="btn" id="btnOpenAuth" type="button">Войти</button>
-          <button class="btn is-hidden" id="btnLogout" type="button">Выйти</button>
           <div class="profile-menu" id="profileMenu" aria-hidden="true">
             <button class="profile-menu-item" id="btnMenuMyProfile" type="button">👤 Мой профиль</button>
             <button class="profile-menu-item" id="btnMenuContacts" type="button">📇 Контакты</button>
@@ -82,12 +80,18 @@
         </aside>
 
         <div class="chat">
-          <button class="chat-head" id="btnChatInfo" type="button">
-            <div>
-              <div id="chatHeadTitle">Выберите чат</div>
-              <div class="small" id="chatHeadSub">Нажмите для поиска и медиа</div>
+          <div class="chat-head">
+            <button class="chat-head-info" id="btnChatInfo" type="button">
+              <div>
+                <div id="chatHeadTitle">Выберите чат</div>
+                <div class="small" id="chatHeadSub">Нажмите для поиска и медиа</div>
+              </div>
+            </button>
+            <div class="chat-head-actions" aria-label="Действия чата">
+              <button class="iconbtn" id="btnStartVoiceCall" type="button" title="Голосовой звонок" aria-label="Голосовой звонок">📞</button>
+              <button class="iconbtn" id="btnStartVideoCall" type="button" title="Видеозвонок" aria-label="Видеозвонок">🎥</button>
             </div>
-          </button>
+          </div>
           <div id="storiesBar" class="stories-bar"></div>
           <div id="pinsBar" class="small pins-bar is-hidden"></div>
           <div class="msgs" id="msgs"></div>
@@ -274,6 +278,30 @@
           <button id="btnCancelVoiceNow" type="button" class="danger flex-1">Отмена</button>
         </div>
         <div class="small" id="voicePreviewHint">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CALL PANEL -->
+  <div class="overlay" id="callOverlay" aria-hidden="true">
+    <div class="modal call-modal" role="dialog" aria-modal="true">
+      <div class="modal-top">
+        <b id="callTitle">Звонок</b>
+        <button class="xbtn" id="btnCloseCall" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="small" id="callHint">Подготовка…</div>
+        <div class="small" id="callMeta">—</div>
+        <video id="callLocalVideo" class="call-local-video is-hidden" autoplay muted playsinline></video>
+        <div class="btnrow btnrow-inline" id="callIncomingActions">
+          <button id="btnAnswerCall" class="flex-1" type="button">✅ Ответить</button>
+          <button id="btnRejectCall" class="danger flex-1" type="button">❌ Отклонить</button>
+        </div>
+        <div class="btnrow btnrow-inline" id="callActiveActions">
+          <button id="btnToggleCallMic" class="flex-1" type="button">🎙 Микрофон</button>
+          <button id="btnToggleCallCamera" class="flex-1" type="button">📷 Камера</button>
+          <button id="btnEndCall" class="danger flex-1" type="button">⛔ Завершить</button>
+        </div>
       </div>
     </div>
   </div>
