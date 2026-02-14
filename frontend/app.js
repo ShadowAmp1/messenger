@@ -36,6 +36,53 @@
     applyTheme(current === "dark" ? "light" : "dark");
   }
 
+
+  let deferredInstallPrompt = null;
+
+  function initMobileAppBridge(){
+    const installBtn = $("btnInstallApp");
+    if (!installBtn) return;
+
+    const inStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone;
+    if (inStandalone){
+      installBtn.textContent = "✅ Приложение";
+      installBtn.disabled = true;
+      installBtn.title = "Приложение уже запущено";
+      return;
+    }
+
+    installBtn.addEventListener("click", async ()=>{
+      if (deferredInstallPrompt){
+        deferredInstallPrompt.prompt();
+        try { await deferredInstallPrompt.userChoice; } catch(_){}
+        deferredInstallPrompt = null;
+        installBtn.textContent = "📱 Приложение";
+        return;
+      }
+      addSystem("Откройте меню браузера и выберите «Установить приложение». После установки сайт и приложение используют один и тот же аккаунт.");
+    });
+
+    window.addEventListener("beforeinstallprompt", (event)=>{
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      installBtn.textContent = "⬇️ Установить";
+    });
+
+    window.addEventListener("appinstalled", ()=>{
+      deferredInstallPrompt = null;
+      installBtn.textContent = "✅ Установлено";
+      installBtn.disabled = true;
+      addSystem("Мобильное приложение установлено и связано с сайтом.");
+    });
+  }
+
+  function registerServiceWorker(){
+    if (!("serviceWorker" in navigator)) return;
+    window.addEventListener("load", ()=>{
+      navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    });
+  }
+
   // GLOBAL WS
   let ws = null;
 
@@ -2537,6 +2584,8 @@ ${listText}
   // =========================
   syncSidebarTopOffset();
   initTheme();
+  initMobileAppBridge();
+  registerServiceWorker();
   updateChatActionState();
   setWhoami();
   requestNotificationPermissionIfNeeded();
