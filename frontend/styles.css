@@ -289,6 +289,8 @@
     .chatitem .left{ min-width:0; }
     .chatitem .title{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
     .chatitem .sub{ font-size:12px; opacity:.8; color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
+    .contact-actions{ display:flex; gap:8px; flex:0 0 auto; }
+    .contact-action-btn{ padding:8px 12px; }
     .badge{
       font-size: 12px;
       border:1px solid var(--border);
