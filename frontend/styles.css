@@ -854,6 +854,15 @@
       cursor:pointer;
     }
     .ctx button:hover{ background: rgba(127,127,127,.12); }
+    .ctx-meta{
+      border-top:1px solid var(--border);
+      padding:8px 12px;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.35;
+      background: color-mix(in srgb, var(--surface) 65%, transparent);
+      white-space:pre-wrap;
+    }
 
     .voice{ display:flex; align-items:center; gap:10px; max-width: 420px; }
     .voice .play{

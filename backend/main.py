@@ -7,6 +7,9 @@ import re
 import hmac
 import hashlib
 import secrets
+import tempfile
+import urllib.parse
+import urllib.request
 from typing import Dict, Set, Optional, List, Any, Tuple
 
 import psycopg
@@ -80,6 +83,9 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
+
+OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
+OPENAI_TRANSCRIBE_MODEL = (os.environ.get("OPENAI_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
 
 
 # =========================
@@ -306,6 +312,45 @@ def init_db() -> None:
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id BIGINT;")
             cur.execute("ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';")
 
+            # Remove legacy auto-created public room "general".
+            cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id='general')")
+            cur.execute("DELETE FROM message_delivered WHERE message_id IN (SELECT id FROM messages WHERE chat_id='general')")
+            cur.execute("DELETE FROM chat_reads WHERE chat_id='general'")
+            cur.execute("DELETE FROM chat_members WHERE chat_id='general'")
+            cur.execute("DELETE FROM messages WHERE chat_id='general'")
+            cur.execute("DELETE FROM chats WHERE id='general'")
+
+            # Ensure each user has a personal chat "Избранное".
+            cur.execute("SELECT username FROM users")
+            users = [r["username"] for r in cur.fetchall()]
+            ts = int(time.time())
+            for uname in users:
+                fav_id = f"fav:{uname}"
+                cur.execute(
+                    """
+                    INSERT INTO chats(id, type, title, created_by, created_at)
+                    VALUES (%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (fav_id, "dm", "Избранное", uname, ts),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO chat_members(chat_id, username, role, joined_at)
+                    VALUES (%s,%s,%s,%s)
+                    ON CONFLICT (chat_id, username) DO NOTHING
+                    """,
+                    (fav_id, uname, "owner", ts),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
+                    VALUES (%s,%s,%s,%s)
+                    ON CONFLICT (chat_id, username) DO NOTHING
+                    """,
+                    (fav_id, uname, 0, ts),
+                )
+
         conn.commit()
 
 
@@ -318,15 +363,23 @@ def is_member(conn, chat_id: str, username: str) -> bool:
         return cur.fetchone() is not None
 
 
-def ensure_general_for(username: str) -> None:
+def favorites_chat_id(username: str) -> str:
+    return f"fav:{username}"
+
+
+def ensure_favorites_for(username: str) -> None:
+    chat_id = favorites_chat_id(username)
+    ts = int(time.time())
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM chats WHERE id='general'")
-            if cur.fetchone() is None:
-                cur.execute(
-                    "INSERT INTO chats(id, type, title, created_by, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    ("general", "group", "general", "system", int(time.time())),
-                )
+            cur.execute(
+                """
+                INSERT INTO chats(id, type, title, created_by, created_at)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (chat_id, "dm", "Избранное", username, ts),
+            )
 
             cur.execute(
                 """
@@ -334,7 +387,7 @@ def ensure_general_for(username: str) -> None:
                 VALUES (%s,%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, "member", int(time.time())),
+                (chat_id, username, "owner", ts),
             )
 
             cur.execute(
@@ -343,7 +396,7 @@ def ensure_general_for(username: str) -> None:
                 VALUES (%s,%s,%s,%s)
                 ON CONFLICT (chat_id, username) DO NOTHING
                 """,
-                ("general", username, 0, int(time.time())),
+                (chat_id, username, 0, ts),
             )
         conn.commit()
 
@@ -523,6 +576,63 @@ def now_ts() -> int:
     return int(time.time())
 
 
+def _is_allowed_media_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.netloc or "").lower()
+    if not host:
+        return False
+    if host.endswith("res.cloudinary.com"):
+        return True
+    return False
+
+
+def transcribe_media_url(media_url: str, language: Optional[str] = None, prompt: Optional[str] = None) -> str:
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured")
+    if not _is_allowed_media_url(media_url):
+        raise HTTPException(status_code=400, detail="Unsupported media_url host")
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        raise HTTPException(status_code=503, detail="openai package is not installed")
+
+    req = urllib.request.Request(media_url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            audio_bytes = r.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download media_url: {e}")
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Downloaded media is empty")
+    if len(audio_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"Audio too large (max {MAX_UPLOAD_MB}MB)")
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as tmp:
+        tmp.write(audio_bytes)
+        tmp.flush()
+        with open(tmp.name, "rb") as f:
+            try:
+                tr = client.audio.transcriptions.create(
+                    model=OPENAI_TRANSCRIBE_MODEL,
+                    file=f,
+                    language=(language or None),
+                    prompt=(prompt or None),
+                )
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Transcription provider error: {e}")
+
+    text = (getattr(tr, "text", None) or "").strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="Transcription result is empty")
+    return text
+
+
 # =========================
 # Realtime (Global WS per user)
 # =========================
@@ -635,6 +745,16 @@ class ReactionIn(BaseModel):
     emoji: str
 
 
+class ForwardIn(BaseModel):
+    target_chat_id: str
+
+
+class TranscribeIn(BaseModel):
+    media_url: str
+    language: Optional[str] = None
+    prompt: Optional[str] = None
+
+
 class PinIn(BaseModel):
     message_id: int
 
@@ -684,7 +804,7 @@ def register(data: AuthIn, request: Request):
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=400, detail="Такой username уже занят.")
 
-    ensure_general_for(username)
+    ensure_favorites_for(username)
 
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     refresh_token = issue_refresh_token(username)
@@ -704,7 +824,7 @@ def login(data: AuthIn, request: Request):
     if not row or not verify_password(data.password, row["pass_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    ensure_general_for(username)
+    ensure_favorites_for(username)
 
     now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
@@ -1115,9 +1235,13 @@ def create_group_chat(data: ChatCreateIn, username: str = Depends(get_current_us
                 """
                 INSERT INTO chat_members(chat_id, username, role, joined_at)
                 VALUES (%s,%s,%s,%s)
+                ON CONFLICT (chat_id, username) DO UPDATE SET role='owner'
                 """,
                 (chat_id, username, "owner", now),
             )
+            # Defensive cleanup: a new group must contain only creator.
+            cur.execute("DELETE FROM chat_members WHERE chat_id=%s AND username<>%s", (chat_id, username))
+            cur.execute("DELETE FROM chat_reads WHERE chat_id=%s AND username<>%s", (chat_id, username))
             cur.execute(
                 """
                 INSERT INTO chat_reads(chat_id, username, last_read_id, updated_at)
@@ -1386,9 +1510,6 @@ async def unpin_message(chat_id: str, message_id: int, username: str = Depends(g
 
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat(chat_id: str, username: str = Depends(get_current_username)):
-    if chat_id == "general":
-        raise HTTPException(status_code=400, detail="general cannot be deleted")
-
     with db() as conn:
         chat = get_chat(conn, chat_id)
         if not chat:
@@ -1676,6 +1797,78 @@ def list_messages(
     return {"messages": rows}
 
 
+@app.get("/api/messages/{message_id}/status")
+def get_message_status(
+    message_id: int,
+    username: str = Depends(get_current_username),
+):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id, sender FROM messages WHERE id=%s", (message_id,))
+            msg = cur.fetchone()
+            if not msg:
+                raise HTTPException(status_code=404, detail="Message not found")
+            chat_id = msg["chat_id"]
+            sender = msg["sender"]
+
+            if not is_member(conn, chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member")
+
+            cur.execute(
+                """
+                SELECT m.username,
+                       d.delivered_at,
+                       CASE WHEN r.last_read_id >= %s THEN r.updated_at ELSE NULL END AS read_at
+                FROM chat_members m
+                LEFT JOIN message_delivered d
+                  ON d.message_id=%s AND d.username=m.username
+                LEFT JOIN chat_reads r
+                  ON r.chat_id=%s AND r.username=m.username
+                WHERE m.chat_id=%s
+                ORDER BY m.joined_at ASC
+                """,
+                (message_id, message_id, chat_id, chat_id),
+            )
+            rows = cur.fetchall()
+
+    members = []
+    delivered_count = 0
+    read_count = 0
+    delivered_latest = 0
+    read_latest = 0
+
+    for r in rows:
+        u = r["username"]
+        if u == sender:
+            continue
+        delivered_at = int(r["delivered_at"] or 0)
+        read_at = int(r["read_at"] or 0)
+        if delivered_at > 0:
+            delivered_count += 1
+            delivered_latest = max(delivered_latest, delivered_at)
+        if read_at > 0:
+            read_count += 1
+            read_latest = max(read_latest, read_at)
+        members.append({
+            "username": u,
+            "delivered_at": (delivered_at or None),
+            "read_at": (read_at or None),
+        })
+
+    return {
+        "ok": True,
+        "message_id": int(message_id),
+        "chat_id": chat_id,
+        "sender": sender,
+        "members_total": len(members),
+        "delivered_count": delivered_count,
+        "read_count": read_count,
+        "delivered_latest": (delivered_latest or None),
+        "read_latest": (read_latest or None),
+        "members": members,
+    }
+
+
 @app.post("/api/messages")
 async def create_text_message(
     data: MessageCreateIn,
@@ -1758,6 +1951,105 @@ async def create_text_message(
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id}
+
+
+@app.post("/api/messages/{message_id}/forward")
+async def forward_message(
+    message_id: int,
+    data: ForwardIn,
+    username: str = Depends(get_current_username),
+):
+    check_rate_limit(f"send:{username}", RATE_LIMIT_MAX_SEND)
+    target_chat_id = (data.target_chat_id or "").strip()
+    if not target_chat_id:
+        raise HTTPException(status_code=400, detail="target_chat_id required")
+
+    ts = now_ts()
+
+    with db() as conn:
+        sender_avatar_url = None
+        with conn.cursor() as cur:
+            cur.execute("SELECT avatar_url FROM users WHERE username=%s", (username,))
+            user_row = cur.fetchone()
+            sender_avatar_url = user_row["avatar_url"] if user_row else None
+
+            cur.execute(
+                """
+                SELECT chat_id, sender, text, media_kind, media_url, media_mime, media_name, deleted_for_all
+                FROM messages
+                WHERE id=%s
+                """,
+                (message_id,),
+            )
+            src = cur.fetchone()
+            if not src:
+                raise HTTPException(status_code=404, detail="Message not found")
+
+            source_chat_id = src["chat_id"]
+            if not is_member(conn, source_chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member of source chat")
+            if not is_member(conn, target_chat_id, username):
+                raise HTTPException(status_code=403, detail="Not a member of target chat")
+            if src["deleted_for_all"]:
+                raise HTTPException(status_code=400, detail="Cannot forward deleted message")
+
+            original_sender = (src["sender"] or "user").strip()
+            original_text = (src["text"] or "").strip()
+            prefix = f"↪ Forwarded from {original_sender}: "
+            body_text = (prefix + original_text).strip()
+            if len(body_text) > 2000:
+                body_text = body_text[:2000]
+
+            cur.execute(
+                """
+                INSERT INTO messages(chat_id, sender, text, created_at, media_kind, media_url, media_mime, media_name)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (
+                    target_chat_id,
+                    username,
+                    body_text,
+                    ts,
+                    src["media_kind"],
+                    src["media_url"],
+                    src["media_mime"],
+                    src["media_name"],
+                ),
+            )
+            new_id = int(cur.fetchone()["id"])
+
+            cur.execute(
+                """
+                INSERT INTO message_delivered(message_id, username, delivered_at)
+                VALUES (%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (new_id, username, ts),
+            )
+        conn.commit()
+
+    payload = {
+        "type": "message",
+        "id": new_id,
+        "chat_id": target_chat_id,
+        "sender": username,
+        "sender_avatar_url": sender_avatar_url,
+        "text": body_text,
+        "created_at": ts,
+        "is_edited": False,
+        "deleted_for_all": False,
+        "media_kind": src["media_kind"],
+        "media_url": src["media_url"],
+        "media_mime": src["media_mime"],
+        "media_name": src["media_name"],
+        "reply_to_id": None,
+        "reply_sender": None,
+        "reply_text": None,
+        "reactions": {},
+    }
+    await broadcast_chat(target_chat_id, payload)
+    return {"ok": True, "id": new_id}
 
 
 @app.patch("/api/messages/{message_id}")
@@ -2010,6 +2302,19 @@ async def upload_media(
     }
     await broadcast_chat(chat_id, payload)
     return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
+
+
+@app.post("/api/transcribe")
+def transcribe_voice(
+    payload: TranscribeIn,
+    username: str = Depends(get_current_username),
+):
+    media_url = (payload.media_url or "").strip()
+    if not media_url:
+        raise HTTPException(status_code=400, detail="media_url required")
+
+    text = transcribe_media_url(media_url, language=payload.language, prompt=payload.prompt)
+    return {"ok": True, "text": text}
 
 
 # =========================
