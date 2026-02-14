@@ -22,15 +22,20 @@
             <div class="small">Удобный чат для телефона и ПК</div>
           </div>
         </div>
-        <div class="row">
-          <div class="pill" id="whoami">
+        <div class="row top-controls">
+          <button class="pill pill-btn" id="whoami" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="profileMenu">
             <img id="topAvatar" class="avatar" alt="avatar"/>
             <span id="whoText">Не авторизован</span>
-          </div>
+          </button>
           <button class="btn" id="btnThemeToggle" type="button" aria-label="Переключить тему">🌙 Тема</button>
           <button class="btn is-hidden" id="btnProfile" type="button">Профиль</button>
           <button class="btn" id="btnOpenAuth" type="button">Войти</button>
           <button class="btn is-hidden" id="btnLogout" type="button">Выйти</button>
+          <div class="profile-menu" id="profileMenu" aria-hidden="true">
+            <button class="profile-menu-item" id="btnMenuMyProfile" type="button">👤 Мой профиль</button>
+            <button class="profile-menu-item" id="btnMenuContacts" type="button">📇 Контакты</button>
+            <button class="profile-menu-item" id="btnMenuLogout" type="button">🚪 Выйти</button>
+          </div>
         </div>
       </div>
 
@@ -221,6 +226,19 @@
         <div class="sep"></div>
         <b>Аватары (новые и старые)</b>
         <div id="userProfileAvatars" class="chatlist"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MEDIA VIEWER -->
+  <div class="overlay" id="mediaViewerOverlay" aria-hidden="true">
+    <div class="modal media-viewer" role="dialog" aria-modal="true">
+      <div class="modal-top">
+        <b id="mediaViewerTitle">Медиа</b>
+        <button class="xbtn" id="btnCloseMediaViewer" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="mediaViewerContent"></div>
       </div>
     </div>
   </div>

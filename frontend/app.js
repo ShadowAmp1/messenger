@@ -152,6 +152,45 @@
     }catch{ return "—"; }
   }
 
+  function inferMediaKind(url, fallback=""){
+    const kind = String(fallback || "").toLowerCase();
+    if (kind === "image" || kind === "video" || kind === "audio") return kind;
+    const clean = String(url || "").split("?")[0].toLowerCase();
+    if (/(\.jpg|\.jpeg|\.png|\.gif|\.webp|\.bmp|\.svg)$/.test(clean)) return "image";
+    if (/(\.mp4|\.webm|\.mov|\.m4v)$/.test(clean)) return "video";
+    if (/(\.mp3|\.ogg|\.wav|\.m4a|\.aac|\.webm)$/.test(clean)) return "audio";
+    return "file";
+  }
+
+  function openMediaViewer(url, kind="", title="Медиа"){
+    if (!url) return;
+    const mediaKind = inferMediaKind(url, kind);
+    const holder = $("mediaViewerContent");
+    holder.innerHTML = "";
+    if (mediaKind === "video"){
+      const video = document.createElement("video");
+      video.src = url;
+      video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      holder.appendChild(video);
+    } else {
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = title || "media";
+      holder.appendChild(img);
+    }
+    $("mediaViewerTitle").textContent = title || "Медиа";
+    $("mediaViewerOverlay").classList.add("open");
+    $("mediaViewerOverlay").setAttribute("aria-hidden", "false");
+  }
+
+  function closeMediaViewer(){
+    $("mediaViewerOverlay").classList.remove("open");
+    $("mediaViewerOverlay").setAttribute("aria-hidden", "true");
+    $("mediaViewerContent").innerHTML = "";
+  }
+
   function createMessageAvatar(sender, isMine, senderAvatarUrl){
     const initial = String(sender || "?").trim().charAt(0).toUpperCase() || "?";
     const preferredAvatar = (isMine ? avatarUrl : senderAvatarUrl) || senderAvatarUrl;
@@ -704,6 +743,25 @@
 
   const profile = { overlay: $("profileOverlay") };
   const userProfile = { overlay: $("userProfileOverlay"), activeUsername: "" };
+  const profileMenu = { root: $("profileMenu"), trigger: $("whoami") };
+
+  function openProfileMenu(){
+    if (!token) return openAuth("login");
+    profileMenu.root.classList.add("open");
+    profileMenu.root.setAttribute("aria-hidden", "false");
+    profileMenu.trigger.setAttribute("aria-expanded", "true");
+  }
+
+  function closeProfileMenu(){
+    profileMenu.root.classList.remove("open");
+    profileMenu.root.setAttribute("aria-hidden", "true");
+    profileMenu.trigger.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleProfileMenu(){
+    if (profileMenu.root.classList.contains("open")) closeProfileMenu();
+    else openProfileMenu();
+  }
   function openProfile(){
     if (!token) return openAuth("login");
     $("profileHint").textContent = `@${me}`;
@@ -748,9 +806,39 @@
       } else {
         for (const story of userStories){
           const row = document.createElement("div");
-          row.className = "chatitem";
-          row.innerHTML = `<div><div class="title">${escapeHtml(story.caption || 'История')}</div><div class="sub">${new Date((story.created_at||0)*1000).toLocaleString()}</div></div>`;
-          row.onclick = () => window.open(story.media_url, "_blank");
+          row.className = "chatitem profile-story";
+
+          const info = document.createElement("div");
+          info.innerHTML = `<div class="title">${escapeHtml(story.caption || 'История')}</div><div class="sub">${new Date((story.created_at||0)*1000).toLocaleString()}</div>`;
+          row.appendChild(info);
+
+          const kind = inferMediaKind(story.media_url, story.media_kind || "");
+          if (story.media_url && kind === "video"){
+            const video = document.createElement("video");
+            video.className = "profile-story-video";
+            video.src = story.media_url;
+            video.controls = true;
+            video.preload = "metadata";
+            video.playsInline = true;
+            row.appendChild(video);
+          } else if (story.media_url){
+            const img = document.createElement("img");
+            img.className = "profile-story-media";
+            img.src = story.media_url;
+            img.alt = story.caption || "История";
+            img.loading = "lazy";
+            row.appendChild(img);
+          }
+
+          if (story.media_url){
+            const openBtn = document.createElement("button");
+            openBtn.className = "btn";
+            openBtn.type = "button";
+            openBtn.textContent = "Открыть в плеере";
+            openBtn.onclick = () => openMediaViewer(story.media_url, kind, story.caption || "История");
+            row.appendChild(openBtn);
+          }
+
           if (data.can_manage){
             const del = document.createElement("button");
             del.className = "trash";
@@ -782,7 +870,7 @@
           const row = document.createElement("div");
           row.className = "chatitem";
           row.innerHTML = `<div><div class="title">${item.current ? 'Текущий аватар' : 'Аватар'}</div><div class="sub">${item.current ? 'актуальный' : new Date((item.created_at||0)*1000).toLocaleString()}</div></div>`;
-          row.onclick = () => window.open(item.avatar_url, "_blank");
+          row.onclick = () => openMediaViewer(item.avatar_url, "image", item.current ? "Текущий аватар" : "Аватар");
           if (data.can_manage && item.id){
             const del = document.createElement("button");
             del.className = "trash";
@@ -1208,7 +1296,7 @@
         img.alt = media_name || "image";
         img.loading = "lazy";
         img.style.cursor = "pointer";
-        img.onclick = () => window.open(media_url, "_blank");
+        img.onclick = () => openMediaViewer(media_url, "image", media_name || "Фото");
         wrap.appendChild(img);
         div.appendChild(wrap);
       }
@@ -1220,6 +1308,7 @@
         video.src = media_url;
         video.controls = true;
         video.preload = "metadata";
+        video.addEventListener("dblclick", () => openMediaViewer(media_url, "video", media_name || "Видео"));
         wrap.appendChild(video);
         div.appendChild(wrap);
       }
@@ -1597,7 +1686,7 @@
       row.type = 'button';
       row.className = 'overview-item';
       row.innerHTML = `<div class="small">${new Date((item.created_at||0)*1000).toLocaleString()}</div>`;
-      row.onclick = ()=>window.open(item.avatar_url, '_blank');
+      row.onclick = ()=>openMediaViewer(item.avatar_url, 'image', 'Аватар');
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'btn danger';
@@ -1675,9 +1764,14 @@
       return;
     }
     for (const c of contacts){
-      const row = document.createElement('div');
+      const row = document.createElement('button');
+      row.type = 'button';
       row.className = 'chatitem';
       row.innerHTML = `<div><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
+      row.onclick = async ()=>{
+        closeContacts();
+        await openUserProfile(c.username);
+      };
       list.appendChild(row);
     }
   }
@@ -1737,7 +1831,7 @@
         card.className = "overview-item";
         const title = m.media_name || m.media_kind || "Файл";
         card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
-        card.onclick = () => window.open(m.media_url, "_blank");
+        card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
         wrap.appendChild(card);
       }
       mediaBox.appendChild(wrap);
@@ -1918,6 +2012,7 @@
     toggleHidden($("btnOpenAuth"), !!token);
     toggleHidden($("btnLogout"), !token);
     toggleHidden($("btnProfile"), !token);
+    if (!token) closeProfileMenu();
 
     const img = $("topAvatar");
     if (token && avatarUrl){
@@ -1972,6 +2067,10 @@
   $("btnOpenAuth").onclick = () => openAuth("login");
   $("btnLogout").onclick = () => logout();
   $("btnProfile").onclick = () => openProfile();
+  $("whoami").onclick = () => toggleProfileMenu();
+  $("btnMenuMyProfile").onclick = () => { closeProfileMenu(); openProfile(); };
+  $("btnMenuContacts").onclick = () => { closeProfileMenu(); openContacts(); };
+  $("btnMenuLogout").onclick = () => { closeProfileMenu(); logout(); };
   $("btnContacts").onclick = () => openContacts();
   $("btnChatInfo").onclick = () => openChatInfo();
 
@@ -2010,9 +2109,19 @@
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
   $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
+  document.addEventListener("click", (e)=>{
+    const menu = $("profileMenu");
+    const trigger = $("whoami");
+    if (!menu.classList.contains("open")) return;
+    if (menu.contains(e.target) || trigger.contains(e.target)) return;
+    closeProfileMenu();
+  });
   $("btnUploadAvatar").onclick = () => uploadAvatar();
   $("btnSaveProfile").onclick = () => saveProfile();
   $("btnUploadStory").onclick = () => uploadStory();
+
+  $("btnCloseMediaViewer").onclick = () => closeMediaViewer();
+  $("mediaViewerOverlay").addEventListener("click", (e)=>{ if (e.target === $("mediaViewerOverlay")) closeMediaViewer(); });
 
   $("btnCloseVoicePreview").onclick = () => { closeVoicePreview(); clearPreview(); };
   $("btnCancelVoiceNow").onclick = () => { closeVoicePreview(); clearPreview(); };
@@ -2049,6 +2158,8 @@
       closeSidebar();
       closeSheet();
       closeProfile();
+      closeProfileMenu();
+      closeMediaViewer();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
       const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
