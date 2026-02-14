@@ -642,6 +642,20 @@ def root():
     return {"ok": True, "hint": "frontend/index.html not found"}
 
 
+@app.get("/app")
+def mobile_app_entry():
+    if os.path.isfile(FRONTEND_INDEX):
+        return FileResponse(FRONTEND_INDEX)
+    return {"ok": True, "hint": "frontend/index.html not found"}
+
+
+@app.get("/sw.js")
+def service_worker():
+    sw_path = os.path.join(FRONTEND_DIR, "sw.js")
+    if os.path.isfile(sw_path):
+        return FileResponse(sw_path, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="sw.js not found")
+
 
 # =========================
 # Schemas
