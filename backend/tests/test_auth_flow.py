@@ -72,3 +72,13 @@ def test_register_then_login(monkeypatch):
 
     login_response = module.login(module.AuthIn(username="alice", password="secret123"), DummyRequest())
     assert login_response["username"] == "alice"
+
+
+
+def test_healthcheck_payload(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    response = module.healthcheck()
+
+    assert response["ok"] is True
+    assert isinstance(response["ts"], int)

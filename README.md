@@ -47,6 +47,10 @@ Frontend уже лежит в репозитории и раздаётся backe
 
 ## Быстрая проверка
 ```bash
+curl http://localhost:8000/api/health
+```
+
+Ожидается JSON вида `{"ok": true, "ts": ...}`.
 curl http://localhost:8000/
 ```
 

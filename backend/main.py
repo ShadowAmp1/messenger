@@ -1559,7 +1559,7 @@ def chat_overview(
                 WHERE chat_id=%s
                   AND deleted_for_all=FALSE
                   AND (
-                    text ~* '(https?://[^\s]+)'
+                    text ~* '(https?://[^\\s]+)'
                     OR text LIKE 'www.%'
                   )
                 ORDER BY id DESC
