@@ -2320,10 +2320,3 @@ async def mark_read(
     })
     return {"ok": True}
 
-
-# =========================
-# Health
-# =========================
-@app.get("/api/health")
-def health():
-    return {"ok": True}
