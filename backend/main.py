@@ -7,7 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
-from typing import Dict, Set, Optional, List, Any, Tuple
+from typing import Dict, Set, Optional, List, Tuple
 
 import psycopg
 from psycopg.rows import dict_row
