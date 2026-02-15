@@ -657,6 +657,11 @@ def mobile_app_entry():
     return {"ok": True, "hint": "frontend/index.html not found"}
 
 
+@app.get("/api/health")
+def healthcheck():
+    return {"ok": True, "ts": now_ts()}
+
+
 @app.get("/sw.js")
 def service_worker():
     sw_path = os.path.join(FRONTEND_DIR, "sw.js")
