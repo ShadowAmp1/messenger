@@ -52,6 +52,8 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 JWT_SECRET = (os.environ.get("JWT_SECRET") or "").strip()
 if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET env is required")
+if len(JWT_SECRET) < 16:
+    raise RuntimeError("JWT_SECRET must be at least 16 characters")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 REFRESH_TTL_SECONDS = int(os.environ.get("REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 120)))  # 120 days
 
