@@ -84,6 +84,19 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
 
+def parse_cors_origins(value: Optional[str]) -> List[str]:
+    if value is None or not value.strip():
+        return ["http://localhost"]
+
+    origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+    if not origins:
+        return ["http://localhost"]
+
+    # Keep order while removing accidental duplicates from CSV input.
+    return list(dict.fromkeys(origins))
+
+
+CORS_ORIGINS = parse_cors_origins(os.environ.get("CORS_ORIGINS"))
 cors_origins_env = os.environ.get("CORS_ORIGINS")
 if cors_origins_env is None or not cors_origins_env.strip():
     cors_origins_env = "http://localhost"

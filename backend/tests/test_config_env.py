@@ -38,3 +38,15 @@ def test_cors_origins_whitespace_only_defaults_to_localhost(monkeypatch):
     module = _load_module(monkeypatch, " ,  ")
 
     assert module.CORS_ORIGINS == ["http://localhost"]
+
+
+def test_cors_origins_commas_only_defaults_to_localhost(monkeypatch):
+    module = _load_module(monkeypatch, ",,,")
+
+    assert module.CORS_ORIGINS == ["http://localhost"]
+
+
+def test_cors_origins_deduplicates_while_preserving_order(monkeypatch):
+    module = _load_module(monkeypatch, "https://a.example, https://b.example, https://a.example")
+
+    assert module.CORS_ORIGINS == ["https://a.example", "https://b.example"]
