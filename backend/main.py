@@ -84,6 +84,13 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
 
+cors_origins_env = os.environ.get("CORS_ORIGINS")
+if cors_origins_env is None or not cors_origins_env.strip():
+    cors_origins_env = "http://localhost"
+
+CORS_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["http://localhost"]
 CORS_ORIGINS = [
     origin.strip()
     for origin in (os.environ.get("CORS_ORIGINS", "http://localhost") or "http://localhost").split(",")

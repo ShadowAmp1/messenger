@@ -32,3 +32,9 @@ def test_cors_origins_csv_parsing(monkeypatch):
     module = _load_module(monkeypatch, "https://app.example.com, http://localhost:5173")
 
     assert module.CORS_ORIGINS == ["https://app.example.com", "http://localhost:5173"]
+
+
+def test_cors_origins_whitespace_only_defaults_to_localhost(monkeypatch):
+    module = _load_module(monkeypatch, " ,  ")
+
+    assert module.CORS_ORIGINS == ["http://localhost"]
