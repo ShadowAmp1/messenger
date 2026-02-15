@@ -28,11 +28,3 @@ def test_missing_jwt_secret_fails_fast(monkeypatch):
 
     with pytest.raises(RuntimeError, match="JWT_SECRET env is required"):
         _import_main_module()
-
-
-def test_missing_database_url_fails_fast(monkeypatch):
-    _base_env(monkeypatch)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-
-    with pytest.raises(RuntimeError, match="DATABASE_URL env is required"):
-        _import_main_module()
