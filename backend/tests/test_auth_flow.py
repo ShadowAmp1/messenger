@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_main_module(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/test")
@@ -73,6 +75,47 @@ def test_register_then_login(monkeypatch):
 
     login_response = module.login(module.AuthIn(username="alice", password="secret123"), DummyRequest())
     assert login_response["username"] == "alice"
+
+def test_login_invalid_credentials_returns_401(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    class DummyRequest:
+        class Client:
+            host = "127.0.0.1"
+
+        client = Client()
+
+    class DummyCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            return None
+
+        def fetchone(self):
+            return None
+
+    class DummyConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return DummyCursor()
+
+    module.db = lambda: DummyConn()
+    module.check_rate_limit = lambda key, limit: None
+
+    with pytest.raises(module.HTTPException) as err:
+        module.login(module.AuthIn(username="alice", password="wrong-pass"), DummyRequest())
+
+    assert err.value.status_code == 401
+    assert err.value.detail == "Invalid credentials"
 
 
 
