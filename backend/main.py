@@ -99,6 +99,18 @@ def parse_cors_origins(value: Optional[str]) -> List[str]:
 
 
 CORS_ORIGINS = parse_cors_origins(os.environ.get("CORS_ORIGINS"))
+cors_origins_env = os.environ.get("CORS_ORIGINS")
+if cors_origins_env is None or not cors_origins_env.strip():
+    cors_origins_env = "http://localhost"
+
+CORS_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["http://localhost"]
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in (os.environ.get("CORS_ORIGINS", "http://localhost") or "http://localhost").split(",")
+    if origin.strip()
+]
 
 # =========================
 # Cloudinary config
@@ -2331,3 +2343,4 @@ async def mark_read(
         "last_read_id": last_id,
     })
     return {"ok": True}
+

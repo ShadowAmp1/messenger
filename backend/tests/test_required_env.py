@@ -9,6 +9,7 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "main.py"
 def _base_env(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/test")
     monkeypatch.setenv("JWT_SECRET", "test-secret-123456")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test")
     monkeypatch.setenv("CLOUDINARY_API_KEY", "test")
     monkeypatch.setenv("CLOUDINARY_API_SECRET", "test")
