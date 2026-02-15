@@ -7,6 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
+from contextlib import asynccontextmanager
 from typing import Dict, Set, Optional, List, Any, Tuple
 
 import psycopg
@@ -621,7 +622,13 @@ async def broadcast_chat(chat_id: str, payload: dict) -> None:
 # =========================
 # App
 # =========================
-app = FastAPI()
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -630,11 +637,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup():
-    init_db()
 
 
 # Serve frontend
