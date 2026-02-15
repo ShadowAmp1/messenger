@@ -48,7 +48,9 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 # =========================
 # Config
 # =========================
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
+JWT_SECRET = (os.environ.get("JWT_SECRET") or "").strip()
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET env is required")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 REFRESH_TTL_SECONDS = int(os.environ.get("REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 120)))  # 120 days
 
@@ -80,6 +82,12 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
+
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in (os.environ.get("CORS_ORIGINS", "http://localhost") or "http://localhost").split(",")
+    if origin.strip()
+]
 
 # =========================
 # Cloudinary config
@@ -617,7 +625,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -647,6 +655,11 @@ def mobile_app_entry():
     if os.path.isfile(FRONTEND_INDEX):
         return FileResponse(FRONTEND_INDEX)
     return {"ok": True, "hint": "frontend/index.html not found"}
+
+
+@app.get("/api/health")
+def healthcheck():
+    return {"ok": True, "ts": now_ts()}
 
 
 @app.get("/sw.js")
@@ -2307,10 +2320,3 @@ async def mark_read(
     })
     return {"ok": True}
 
-
-# =========================
-# Health
-# =========================
-@app.get("/api/health")
-def health():
-    return {"ok": True}

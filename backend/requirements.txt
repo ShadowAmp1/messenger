@@ -4,3 +4,4 @@ pydantic==2.10.6
 python-multipart==0.0.9
 psycopg[binary]
 cloudinary
+pytest
