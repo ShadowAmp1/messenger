@@ -7,6 +7,7 @@ import re
 import hmac
 import hashlib
 import secrets
+from contextlib import asynccontextmanager
 from typing import Dict, Set, Optional, List, Any, Tuple
 
 import psycopg
@@ -48,7 +49,11 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 # =========================
 # Config
 # =========================
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
+JWT_SECRET = (os.environ.get("JWT_SECRET") or "").strip()
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET env is required")
+if len(JWT_SECRET) < 16:
+    raise RuntimeError("JWT_SECRET must be at least 16 characters")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 REFRESH_TTL_SECONDS = int(os.environ.get("REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 120)))  # 120 days
 
@@ -80,6 +85,32 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
+
+def parse_cors_origins(value: Optional[str]) -> List[str]:
+    if value is None or not value.strip():
+        return ["http://localhost"]
+
+    origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+    if not origins:
+        return ["http://localhost"]
+
+    # Keep order while removing accidental duplicates from CSV input.
+    return list(dict.fromkeys(origins))
+
+
+CORS_ORIGINS = parse_cors_origins(os.environ.get("CORS_ORIGINS"))
+cors_origins_env = os.environ.get("CORS_ORIGINS")
+if cors_origins_env is None or not cors_origins_env.strip():
+    cors_origins_env = "http://localhost"
+
+CORS_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["http://localhost"]
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in (os.environ.get("CORS_ORIGINS", "http://localhost") or "http://localhost").split(",")
+    if origin.strip()
+]
 
 # =========================
 # Cloudinary config
@@ -613,20 +644,21 @@ async def broadcast_chat(chat_id: str, payload: dict) -> None:
 # =========================
 # App
 # =========================
-app = FastAPI()
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup():
-    init_db()
 
 
 # Serve frontend
@@ -647,6 +679,11 @@ def mobile_app_entry():
     if os.path.isfile(FRONTEND_INDEX):
         return FileResponse(FRONTEND_INDEX)
     return {"ok": True, "hint": "frontend/index.html not found"}
+
+
+@app.get("/api/health")
+def healthcheck():
+    return {"ok": True, "ts": now_ts()}
 
 
 @app.get("/sw.js")
@@ -1546,7 +1583,7 @@ def chat_overview(
                 WHERE chat_id=%s
                   AND deleted_for_all=FALSE
                   AND (
-                    text ~* '(https?://[^\s]+)'
+                    text ~* '(https?://[^\\s]+)'
                     OR text LIKE 'www.%'
                   )
                 ORDER BY id DESC
@@ -2307,10 +2344,3 @@ async def mark_read(
     })
     return {"ok": True}
 
-
-# =========================
-# Health
-# =========================
-@app.get("/api/health")
-def health():
-    return {"ok": True}

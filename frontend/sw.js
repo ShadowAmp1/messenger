@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mini-messenger-v1';
+const CACHE_NAME = 'mini-messenger-static-v2';
 const APP_SHELL = [
   '/',
   '/app',
@@ -24,17 +24,23 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type !== 'basic') return response;
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match('/frontend/index.html'));
-    })
-  );
+
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  const isAppShellRequest = APP_SHELL.includes(url.pathname);
+  if (isAppShellRequest) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request);
+      })
+    );
+    return;
+  }
+
+  event.respondWith(fetch(event.request));
 });
