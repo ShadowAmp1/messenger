@@ -5,6 +5,7 @@ from pathlib import Path
 def _load_main_module(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/test")
     monkeypatch.setenv("JWT_SECRET", "test-secret-123456")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test")
     monkeypatch.setenv("CLOUDINARY_API_KEY", "test")
     monkeypatch.setenv("CLOUDINARY_API_SECRET", "test")
@@ -72,3 +73,13 @@ def test_register_then_login(monkeypatch):
 
     login_response = module.login(module.AuthIn(username="alice", password="secret123"), DummyRequest())
     assert login_response["username"] == "alice"
+
+
+
+def test_healthcheck_payload(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    response = module.healthcheck()
+
+    assert response["ok"] is True
+    assert isinstance(response["ts"], int)
