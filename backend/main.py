@@ -720,6 +720,39 @@ async def ws_send_safe(ws: WebSocket, payload: dict) -> None:
         pass
 
 
+def get_user_messages_since(username: str, since_message_id: int, limit: int = 1000) -> List[dict]:
+    if since_message_id <= 0:
+        return []
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  m.id, m.chat_id, m.sender, m.text, m.created_at,
+                  m.updated_at, m.is_edited, m.deleted_for_all,
+                  m.media_kind, m.media_url, m.media_mime, m.media_name,
+                  u.avatar_url AS sender_avatar_url,
+                  m.reply_to_id,
+                  r.sender AS reply_sender,
+                  r.text AS reply_text
+                FROM messages m
+                JOIN chat_members cm
+                  ON cm.chat_id = m.chat_id AND cm.username = %s
+                LEFT JOIN users u ON u.username = m.sender
+                LEFT JOIN messages r ON r.id = m.reply_to_id
+                LEFT JOIN message_hidden hid
+                  ON hid.message_id = m.id AND hid.username = %s
+                WHERE m.id > %s
+                  AND hid.message_id IS NULL
+                ORDER BY m.id ASC
+                LIMIT %s
+                """,
+                (username, username, since_message_id, limit),
+            )
+            return cur.fetchall()
+
+
 async def broadcast_users(usernames: List[str], payload: dict) -> None:
     if not usernames:
         return
@@ -1790,7 +1823,7 @@ def chat_overview(
 @app.websocket("/ws/user")
 async def ws_user(ws: WebSocket):
     """
-    Client connects with ?token=...
+    Client connects with ?token=...&since=<last_message_id> (since optional)
     Receives:
       - message
       - message_edited
@@ -1815,8 +1848,20 @@ async def ws_user(ws: WebSocket):
         await ws.close(code=4401)
         return
 
+    try:
+        since_message_id = int(ws.query_params.get("since") or 0)
+    except ValueError:
+        since_message_id = 0
+
     await ws.accept()
     _ws_add(username, ws)
+
+    if since_message_id > 0:
+        for message in get_user_messages_since(username, since_message_id):
+            message["type"] = "message"
+            message["reactions"] = {}
+            await ws_send_safe(ws, message)
+
     last_pong_at = time.monotonic()
     stop_heartbeat = asyncio.Event()
 

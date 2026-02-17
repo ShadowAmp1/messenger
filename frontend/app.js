@@ -97,6 +97,23 @@
   const msgElById = new Map();
   let lastMsgId = 0;
 
+  function getLastMessageStorageKey(){
+    return me ? `lastMessageId:${me}` : "lastMessageId";
+  }
+
+  function loadLastMessageId(){
+    const raw = localStorage.getItem(getLastMessageStorageKey()) || "0";
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  }
+
+  function persistLastMessageId(nextId){
+    const current = loadLastMessageId();
+    const safeId = Number(nextId || 0);
+    if (!Number.isFinite(safeId) || safeId <= current) return;
+    localStorage.setItem(getLastMessageStorageKey(), String(Math.floor(safeId)));
+  }
+
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
   // --- sound notify ---
@@ -974,7 +991,8 @@
     }
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/ws/user?token=${encodeURIComponent(token)}`;
+    const since = Math.max(lastMsgId, loadLastMessageId());
+    const url = `${proto}//${location.host}/ws/user?token=${encodeURIComponent(token)}&since=${encodeURIComponent(since)}`;
 
     setNet("connecting…");
     ws = new WebSocket(url);
@@ -1654,7 +1672,7 @@
     endCall({ silent:true });
     clearReply();
     msgElById.clear();
-    lastMsgId = 0;
+    lastMsgId = loadLastMessageId();
 
     typingState.clear();
     renderTyping();
@@ -1857,8 +1875,12 @@
     div.addEventListener("pointerup", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
     div.addEventListener("pointercancel", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
 
-    msgElById.set(m.id, div);
-    lastMsgId = Math.max(lastMsgId, Number(m.id||0));
+    const messageId = Number(m.id || 0);
+    if (messageId && msgElById.has(messageId)) return;
+
+    msgElById.set(messageId, div);
+    lastMsgId = Math.max(lastMsgId, messageId);
+    persistLastMessageId(lastMsgId);
 
     const avatarNode = createMessageAvatar(messageAuthor, messageAuthor === me, m.sender_avatar_url);
     avatarNode.classList.add("clickable");
@@ -1963,7 +1985,7 @@
     const box = $("msgs");
     box.innerHTML = "";
     msgElById.clear();
-    lastMsgId = 0;
+    lastMsgId = loadLastMessageId();
 
     addSystem(`📥 Loading: ${activeChatTitle}…`);
 
