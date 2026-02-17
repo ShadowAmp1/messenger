@@ -463,9 +463,21 @@
   };
   let callRingTimer = null;
   let callTickerTimer = null;
+  let callRingAckTimer = null;
+  let callRingAckReceived = false;
   const pendingIncomingCalls = new Map();
+  const incomingCallUi = {
+    title: $("incomingCallTitle"),
+    hint: $("incomingCallHint"),
+    acceptBtn: $("btnAcceptIncomingCall"),
+    rejectBtn: $("btnRejectIncomingCall")
+  };
+  let activeIncomingCallId = "";
+  let ringtoneAudioCtx = null;
+  let ringtoneTimer = null;
 
   function resetCallState(){
+    callRingAckReceived = false;
     callState = {
       active:false,
       mode:"voice",
@@ -482,6 +494,7 @@
 
   function stopCallTimers(){
     if (callRingTimer){ clearTimeout(callRingTimer); callRingTimer = null; }
+    if (callRingAckTimer){ clearTimeout(callRingAckTimer); callRingAckTimer = null; }
     if (callTickerTimer){ clearInterval(callTickerTimer); callTickerTimer = null; }
   }
 
@@ -588,7 +601,12 @@
       setStatus(isVideo ? "🎥 Видеозвонок" : "📞 Голосовой звонок");
       updateCallUi();
 
+      callRingAckReceived = false;
       wsSendCall("call_offer", { chat_id: activeChatId, call_id: callId, mode, started_at: startedAt });
+      callRingAckTimer = setTimeout(()=>{
+        if (!callState.active || callState.callId !== callId || callState.status !== "dialing" || callRingAckReceived) return;
+        callUi.hint.textContent = "Пользователь недоступен или не отвечает.";
+      }, 8000);
       callRingTimer = setTimeout(async ()=>{
         if (!callState.active || callState.callId !== callId || callState.status !== "dialing") return;
         wsSendCall("call_timeout", { chat_id: activeChatId, call_id: callId, mode, started_at: startedAt });
@@ -601,6 +619,96 @@
     }
   }
 
+  function stopRingtone(){
+    if (ringtoneTimer){ clearInterval(ringtoneTimer); ringtoneTimer = null; }
+    try{ ringtoneAudioCtx?.close(); }catch(_){ }
+    ringtoneAudioCtx = null;
+  }
+
+  function startRingtone(){
+    stopRingtone();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    ringtoneAudioCtx = new Ctx();
+    const playBeep = ()=>{
+      if (!ringtoneAudioCtx) return;
+      const osc = ringtoneAudioCtx.createOscillator();
+      const gain = ringtoneAudioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 860;
+      gain.gain.value = 0.03;
+      osc.connect(gain);
+      gain.connect(ringtoneAudioCtx.destination);
+      osc.start();
+      osc.stop(ringtoneAudioCtx.currentTime + 0.2);
+    };
+    playBeep();
+    ringtoneTimer = setInterval(playBeep, 900);
+  }
+
+  function showIncomingCallPrompt(call){
+    activeIncomingCallId = call.callId;
+    incomingCallUi.title.textContent = call.mode === "video" ? "🎥 Видеозвонок" : "📞 Голосовой звонок";
+    incomingCallUi.hint.textContent = `${call.from || "Собеседник"} звонит…`;
+    modalManager.open("incomingCallOverlay");
+    startRingtone();
+  }
+
+  function hideIncomingCallPrompt(){
+    activeIncomingCallId = "";
+    stopRingtone();
+    modalManager.close("incomingCallOverlay");
+  }
+
+  async function acceptIncomingCall(callId){
+    const incoming = pendingIncomingCalls.get(callId);
+    if (!incoming || callState.active) return;
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:incoming.mode === "video" });
+      callState = {
+        active:true,
+        mode:incoming.mode,
+        stream,
+        micOn:true,
+        camOn:incoming.mode === "video",
+        callId:incoming.callId,
+        chatId:incoming.chatId,
+        status:"connected",
+        startedAt:incoming.startedAt,
+        connectedAt:Math.floor(Date.now()/1000)
+      };
+      callUi.title.textContent = incoming.mode === "video" ? `Видеозвонок • ${incoming.from}` : `Голосовой звонок • ${incoming.from}`;
+      callUi.hint.textContent = "Разговор: 0:00";
+      if (incoming.mode === "video"){
+        callUi.localVideo.classList.remove("is-hidden");
+        callUi.localVideo.srcObject = stream;
+      } else {
+        callUi.localVideo.classList.add("is-hidden");
+        callUi.localVideo.srcObject = null;
+      }
+      modalManager.open("callOverlay");
+      hideIncomingCallPrompt();
+      updateCallUi();
+      startCallTicker();
+      wsSendCall("call_answer", { chat_id: incoming.chatId, call_id: incoming.callId, mode: incoming.mode, started_at: incoming.startedAt });
+      pendingIncomingCalls.delete(incoming.callId);
+    }catch(e){
+      wsSendCall("call_reject", { chat_id: incoming.chatId, call_id: incoming.callId, mode: incoming.mode, started_at: incoming.startedAt, reason:"media_error" });
+      pendingIncomingCalls.delete(incoming.callId);
+      hideIncomingCallPrompt();
+      addSystem("⚠️ Не удалось принять звонок: " + (e.message || e));
+    }
+  }
+
+  async function rejectIncomingCall(callId, reason="declined"){
+    const incoming = pendingIncomingCalls.get(callId);
+    if (!incoming) return;
+    wsSendCall("call_reject", { chat_id: incoming.chatId, call_id: incoming.callId, mode: incoming.mode, started_at: incoming.startedAt, reason });
+    pendingIncomingCalls.delete(incoming.callId);
+    if (activeIncomingCallId === incoming.callId) hideIncomingCallPrompt();
+    await pushCallLog({ kind:incoming.mode, status:"rejected", started_at:incoming.startedAt, duration:0 }, incoming.chatId);
+  }
+
   async function handleIncomingOffer(data){
     const chatId = String(data.chat_id || "");
     const callId = String(data.call_id || "");
@@ -608,51 +716,15 @@
     const startedAt = Number(data.started_at || Math.floor(Date.now()/1000));
     if (!chatId || !callId) return;
 
-    pendingIncomingCalls.set(callId, { chatId, mode, startedAt, from: data.username || "" });
+    console.debug("[call] incoming event", data);
+    pendingIncomingCalls.set(callId, { callId, chatId, mode, startedAt, from: data.username || "" });
+    wsSendCall("call_ring_ack", { chat_id: chatId, call_id: callId, mode, started_at: startedAt });
+
     const who = data.username || "собеседник";
     addSystem(`${mode === "video" ? "🎥" : "📞"} Входящий звонок от ${who}.`);
 
-    if (chatId === activeChatId && !callState.active){
-      const accepted = confirm(`${mode === "video" ? "Видеозвонок" : "Голосовой звонок"} от ${who}. Ответить?`);
-      if (!accepted){
-        wsSendCall("call_reject", { chat_id: chatId, call_id: callId, mode, started_at: startedAt, reason:"declined" });
-        pendingIncomingCalls.delete(callId);
-        await pushCallLog({ kind:mode, status:"rejected", started_at:startedAt, duration:0 }, chatId);
-        return;
-      }
-      try{
-        const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:mode === "video" });
-        callState = {
-          active:true,
-          mode,
-          stream,
-          micOn:true,
-          camOn:mode === "video",
-          callId,
-          chatId,
-          status:"connected",
-          startedAt,
-          connectedAt:Math.floor(Date.now()/1000)
-        };
-        callUi.title.textContent = mode === "video" ? `Видеозвонок • ${who}` : `Голосовой звонок • ${who}`;
-        callUi.hint.textContent = "Разговор: 0:00";
-        if (mode === "video"){
-          callUi.localVideo.classList.remove("is-hidden");
-          callUi.localVideo.srcObject = stream;
-        } else {
-          callUi.localVideo.classList.add("is-hidden");
-          callUi.localVideo.srcObject = null;
-        }
-        modalManager.open("callOverlay");
-        updateCallUi();
-        startCallTicker();
-        wsSendCall("call_answer", { chat_id: chatId, call_id: callId, mode, started_at: startedAt });
-        pendingIncomingCalls.delete(callId);
-      }catch(e){
-        wsSendCall("call_reject", { chat_id: chatId, call_id: callId, mode, started_at: startedAt, reason:"media_error" });
-        pendingIncomingCalls.delete(callId);
-        addSystem("⚠️ Не удалось принять звонок: " + (e.message || e));
-      }
+    if (!callState.active && !activeIncomingCallId){
+      showIncomingCallPrompt({ callId, chatId, mode, startedAt, from: who });
     }
   }
 
@@ -1273,12 +1345,23 @@
         return;
       }
 
-      if (data.type === "call_offer"){
+      if (data.type === "incoming_call" || data.type === "call_offer"){
         if (data.username !== me) handleIncomingOffer(data).catch(()=>{});
+        return;
+      }
+      if (data.type === "call_ring_ack"){
+        if (data.username === me) return;
+        const ringAckCallId = String(data.call_id || "");
+        if (callState.active && callState.callId === ringAckCallId && callState.status === "dialing"){
+          callRingAckReceived = true;
+          callUi.hint.textContent = "Собеседник получает звонок…";
+        }
+        console.debug("[call] ring ack", data);
         return;
       }
       if (data.type === "call_answer"){
         if (data.username === me) return;
+        console.debug("[call] answer", data);
         if (callState.active && callState.callId === String(data.call_id || "") && callState.status === "dialing"){
           stopCallTimers();
           callState.status = "connected";
@@ -1292,10 +1375,12 @@
       }
       if (data.type === "call_reject"){
         if (data.username === me) return;
+        console.debug("[call] reject", data);
         const callId = String(data.call_id || "");
         const pending = pendingIncomingCalls.get(callId);
         if (pending){
           pendingIncomingCalls.delete(callId);
+          if (activeIncomingCallId === callId) hideIncomingCallPrompt();
           pushCallLog({ kind:pending.mode, status:"rejected", started_at:pending.startedAt, duration:0 }, pending.chatId);
         }
         if (callState.active && callState.callId === callId){
@@ -1308,23 +1393,26 @@
       }
       if (data.type === "call_timeout"){
         if (data.username === me) return;
+        console.debug("[call] timeout", data);
         const callId = String(data.call_id || "");
         const pending = pendingIncomingCalls.get(callId);
         if (pending){
           pendingIncomingCalls.delete(callId);
+          if (activeIncomingCallId === callId) hideIncomingCallPrompt();
           pushCallLog({ kind:pending.mode, status:"missed", started_at:pending.startedAt, duration:0 }, pending.chatId);
-          if (pending.chatId === activeChatId) addSystem("☎️ Пропущенный звонок.");
+          if (pending.chatId === activeChatId) addSystem(data.reason === "offline" ? "☎️ Пользователь оффлайн." : "☎️ Пропущенный звонок.");
         }
         if (callState.active && callState.callId === callId){
           const ended = { ...callState };
           endCall({ silent:true, emit:false });
           pushCallLog({ kind:ended.mode, status:"missed", started_at:ended.startedAt, duration:0 }, ended.chatId);
-          addSystem("☎️ Пропущенный звонок.");
+          addSystem(data.reason === "offline" ? "☎️ Пользователь оффлайн." : "☎️ Пропущенный звонок.");
         }
         return;
       }
       if (data.type === "call_end"){
         if (data.username === me) return;
+        console.debug("[call] end", data);
         if (callState.active && callState.callId === String(data.call_id || "")){
           const duration = Number(data.duration || 0);
           const ended = { ...callState };
@@ -3165,6 +3253,7 @@ ${listText}
     closeProfile();
     closeHelp();
     closeVoicePreview();
+    hideIncomingCallPrompt();
     openAuth("login");
   }
 
@@ -3181,6 +3270,7 @@ ${listText}
   modalManager.register({ overlayId: "mediaViewerOverlay", panelSelector: ".modal", close: closeMediaViewer, ariaLabel: "Просмотр медиа" });
   modalManager.register({ overlayId: "voicePreviewOverlay", panelSelector: ".modal", close: () => { closeVoicePreview(); clearPreview(); }, ariaLabel: "Предпросмотр голосового сообщения" });
   modalManager.register({ overlayId: "callOverlay", panelSelector: ".modal", close: () => endCall({ silent:true }), ariaLabel: "Звонок" });
+  modalManager.register({ overlayId: "incomingCallOverlay", panelSelector: ".modal", close: () => { rejectIncomingCall(activeIncomingCallId || Array.from(pendingIncomingCalls.keys())[0] || "", "dismissed"); }, ariaLabel: "Входящий звонок" });
   $("btnToggleSidebar").onclick = () => toggleSidebar();
   $("drawerBackdrop").onclick = () => closeSidebar();
   window.addEventListener("resize", ()=> {
@@ -3240,6 +3330,8 @@ ${listText}
   $("btnToggleCallCamera").onclick = () => toggleCallCamera();
   $("btnEndCall").onclick = () => endCall();
   $("btnCloseCall").onclick = () => endCall({ silent:true });
+  $("btnAcceptIncomingCall").onclick = () => acceptIncomingCall(activeIncomingCallId || Array.from(pendingIncomingCalls.keys())[0] || "");
+  $("btnRejectIncomingCall").onclick = () => rejectIncomingCall(activeIncomingCallId || Array.from(pendingIncomingCalls.keys())[0] || "", "declined");
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");

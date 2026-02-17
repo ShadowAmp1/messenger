@@ -323,6 +323,22 @@
     </div>
   </div>
 
+  <!-- INCOMING CALL PANEL -->
+  <div class="overlay" id="incomingCallOverlay" aria-hidden="true">
+    <div class="modal call-modal" role="dialog" aria-modal="true" aria-label="Входящий звонок">
+      <div class="modal-top">
+        <b id="incomingCallTitle">Входящий звонок</b>
+      </div>
+      <div class="modal-body">
+        <div class="small" id="incomingCallHint">Кто-то звонит…</div>
+        <div class="btnrow btnrow-inline">
+          <button id="btnAcceptIncomingCall" class="flex-1" type="button">✅ Принять</button>
+          <button id="btnRejectIncomingCall" class="danger flex-1" type="button">❌ Отклонить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- CONTEXT MENU -->
   <div class="ctx" id="ctxMenu">
     <button id="ctxReply">Ответить</button>
