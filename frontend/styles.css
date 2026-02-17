@@ -375,6 +375,9 @@
       align-items:flex-end;
       gap:8px;
       max-width: 100%;
+      /* Browser-level virtualization: skip paint/layout for offscreen messages. */
+      content-visibility: auto;
+      contain-intrinsic-size: 150px;
     }
     .msg-row.me{ justify-content:flex-end; }
     .msg-avatar{
