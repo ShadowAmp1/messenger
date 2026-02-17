@@ -152,6 +152,12 @@ def db():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
+def normalize_messages_limit(value: Optional[int]) -> int:
+    if value is None:
+        return 50
+    return max(1, min(int(value), 200))
+
+
 def init_db() -> None:
     """
     Safe "migrations" via CREATE + ALTER ... IF NOT EXISTS.
@@ -359,6 +365,9 @@ def init_db() -> None:
             cur.execute("UPDATE messages SET edited_at = updated_at WHERE edited_at IS NULL AND updated_at IS NOT NULL;")
             cur.execute("UPDATE messages SET deleted_at = updated_at WHERE deleted_at IS NULL AND deleted_for_all = TRUE;")
             cur.execute("ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';")
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_chat_created_id ON messages(chat_id, created_at, id);"
+            )
 
             # Remove legacy auto-created public room "general".
             cur.execute("DELETE FROM message_hidden WHERE message_id IN (SELECT id FROM messages WHERE chat_id='general')")
@@ -1984,42 +1993,65 @@ async def ws_user(ws: WebSocket):
 @app.get("/api/messages")
 def list_messages(
     chat_id: str = Query(...),
+    before_id: Optional[int] = Query(None),
+    limit: int = Query(50),
     username: str = Depends(get_current_username),
 ):
     chat_id = (chat_id or "").strip()
     if not chat_id:
         raise HTTPException(status_code=400, detail="chat_id required")
+    before_raw = before_id if isinstance(before_id, (int, str)) else None
+    before_message_id = int(before_raw) if before_raw not in (None, "") else None
+    limit_raw = limit if isinstance(limit, int) else None
+    page_limit = normalize_messages_limit(limit_raw)
 
     with db() as conn:
         require_member(conn, chat_id, username)
 
         with conn.cursor() as cur:
+            where_before = ""
+            params: List[Any] = [username, chat_id]
+            if before_message_id is not None:
+                where_before = " AND m.id < %s"
+                params.append(before_message_id)
+            params.append(page_limit + 1)
+
             cur.execute(
-                """
-                SELECT
-                  m.id, m.chat_id, m.sender, m.text, m.created_at,
-                  m.edited_at, m.deleted_at, m.is_edited, m.deleted_for_all,
-                  m.media_kind, m.media_url, m.media_mime, m.media_name,
-                  u.avatar_url AS sender_avatar_url,
-                  m.reply_to_id,
-                  r.sender AS reply_sender,
-                  CASE
-                    WHEN r.deleted_for_all THEN 'Это сообщение удалено'
-                    ELSE r.text
-                  END AS reply_text
-                FROM messages m
-                LEFT JOIN users u ON u.username = m.sender
-                LEFT JOIN messages r ON r.id = m.reply_to_id
-                LEFT JOIN message_hidden hid
-                  ON hid.message_id = m.id AND hid.username = %s
-                WHERE m.chat_id = %s
-                  AND hid.message_id IS NULL
-                ORDER BY m.id ASC
-                LIMIT 500
+                f"""
+                WITH picked AS (
+                    SELECT
+                      m.id, m.chat_id, m.sender, m.text, m.created_at,
+                      m.edited_at, m.deleted_at, m.is_edited, m.deleted_for_all,
+                      m.media_kind, m.media_url, m.media_mime, m.media_name,
+                      u.avatar_url AS sender_avatar_url,
+                      m.reply_to_id,
+                      r.sender AS reply_sender,
+                      CASE
+                        WHEN r.deleted_for_all THEN 'Это сообщение удалено'
+                        ELSE r.text
+                      END AS reply_text
+                    FROM messages m
+                    LEFT JOIN users u ON u.username = m.sender
+                    LEFT JOIN messages r ON r.id = m.reply_to_id
+                    LEFT JOIN message_hidden hid
+                      ON hid.message_id = m.id AND hid.username = %s
+                    WHERE m.chat_id = %s
+                      AND hid.message_id IS NULL
+                      {where_before}
+                    ORDER BY m.id DESC
+                    LIMIT %s
+                )
+                SELECT *
+                FROM picked
+                ORDER BY id ASC
                 """,
-                (username, chat_id),
+                params,
             )
             rows = cur.fetchall()
+
+        has_more = len(rows) > page_limit
+        if has_more:
+            rows = rows[1:]
 
         with conn.cursor() as cur:
             cur.execute(
@@ -2046,7 +2078,7 @@ def list_messages(
         r["reactions"] = by_mid.get(int(r["id"]), {})
         r["my_reactions"] = my_by_mid.get(int(r["id"]), [])
 
-    return {"messages": rows}
+    return {"messages": rows, "has_more": has_more}
 
 
 @app.get("/api/messages/{message_id}/status")
