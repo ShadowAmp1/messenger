@@ -29,6 +29,7 @@ from fastapi import (
     File,
     Form,
     Query,
+    Response,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -63,6 +64,7 @@ if len(JWT_SECRET) < 16:
     raise RuntimeError("JWT_SECRET must be at least 16 characters")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
 REFRESH_TTL_SECONDS = int(os.environ.get("REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 120)))  # 120 days
+REFRESH_COOKIE_NAME = "refresh_token"
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 if not DATABASE_URL:
@@ -473,6 +475,28 @@ def issue_refresh_token(username: str) -> str:
     return token
 
 
+def set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        max_age=REFRESH_TTL_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/api",
+    )
+
+
 RATE_BUCKETS: Dict[str, List[int]] = {}
 
 
@@ -785,9 +809,6 @@ class MessageEditIn(BaseModel):
     text: str
 
 
-class RefreshIn(BaseModel):
-    refresh_token: str
-
 
 class ReactionIn(BaseModel):
     emoji: str
@@ -823,7 +844,7 @@ class ContactCreateIn(BaseModel):
 # Auth API
 # =========================
 @app.post("/api/register")
-def register(data: AuthIn, request: Request):
+def register(data: AuthIn, request: Request, response: Response):
     check_rate_limit(f"auth:register:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
     username = data.username.strip()
     password = data.password
@@ -850,11 +871,12 @@ def register(data: AuthIn, request: Request):
 
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     refresh_token = issue_refresh_token(username)
-    return {"token": token, "refresh_token": refresh_token, "username": username}
+    set_refresh_cookie(response, refresh_token)
+    return {"token": token, "username": username}
 
 
 @app.post("/api/login")
-def login(data: AuthIn, request: Request):
+def login(data: AuthIn, request: Request, response: Response):
     check_rate_limit(f"auth:login:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
     username = data.username.strip()
 
@@ -871,14 +893,15 @@ def login(data: AuthIn, request: Request):
     now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     refresh_token = issue_refresh_token(username)
-    return {"token": token, "refresh_token": refresh_token, "username": username}
+    set_refresh_cookie(response, refresh_token)
+    return {"token": token, "username": username}
 
 
 
 
 @app.post("/api/refresh")
-def refresh_tokens(data: RefreshIn):
-    rt = (data.refresh_token or "").strip()
+def refresh_tokens(request: Request, response: Response):
+    rt = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
     if not rt:
         raise HTTPException(status_code=400, detail="refresh_token required")
 
@@ -898,7 +921,20 @@ def refresh_tokens(data: RefreshIn):
     now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
     new_rt = issue_refresh_token(username)
-    return {"token": token, "refresh_token": new_rt, "username": username}
+    set_refresh_cookie(response, new_rt)
+    return {"token": token, "username": username}
+
+
+@app.post("/api/logout")
+def logout(request: Request, response: Response):
+    rt = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
+    if rt:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE refresh_tokens SET revoked=TRUE WHERE token=%s", (rt,))
+            conn.commit()
+    clear_refresh_cookie(response)
+    return {"ok": True}
 
 
 @app.get("/api/me")
