@@ -224,6 +224,20 @@
     }catch{ return "—"; }
   }
 
+  function extractSafeHttpUrl(value){
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    try{
+      const parsed = new URL(normalized);
+      const protocol = parsed.protocol.toLowerCase();
+      if (protocol !== "http:" && protocol !== "https:") return "";
+      return parsed.toString();
+    }catch{
+      return "";
+    }
+  }
+
   function inferMediaKind(url, fallback=""){
     const kind = String(fallback || "").toLowerCase();
     if (kind === "image" || kind === "video" || kind === "audio") return kind;
@@ -2197,7 +2211,13 @@
     for (const [username, s] of grouped.entries()){
       const item = document.createElement("button");
       item.className = "story-item";
-      item.innerHTML = `<img src="${s.avatar_url || ''}" alt="${username}" /><span>${s.display_name || username}</span>`;
+      const img = document.createElement("img");
+      img.src = s.avatar_url || "";
+      img.alt = username;
+      const name = document.createElement("span");
+      name.textContent = s.display_name || username;
+      item.appendChild(img);
+      item.appendChild(name);
       item.onclick = () => openUserProfile(username);
       bar.appendChild(item);
     }
@@ -2245,7 +2265,17 @@
     for (const c of contacts){
       const row = document.createElement('div');
       row.className = 'chatitem';
-      row.innerHTML = `<div class="left"><div class="title">${escapeHtml(c.display_name || c.username)}</div><div class="sub">@${escapeHtml(c.username)} • ${c.online ? 'в сети' : 'не в сети'}</div></div>`;
+      const left = document.createElement('div');
+      left.className = 'left';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = c.display_name || c.username;
+      const sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = `@${c.username} • ${c.online ? 'в сети' : 'не в сети'}`;
+      left.appendChild(title);
+      left.appendChild(sub);
+      row.appendChild(left);
 
       const actions = document.createElement('div');
       actions.className = 'contact-actions';
@@ -2343,14 +2373,30 @@
 
       if (chatInfoState.activeTab === "links"){
         const raw = String((item.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
-        card.innerHTML = `<div><b>${escapeHtml(raw || "Ссылка")}</b></div><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
+        const titleWrap = document.createElement("div");
+        const titleStrong = document.createElement("b");
+        titleStrong.textContent = raw || "Ссылка";
+        titleWrap.appendChild(titleStrong);
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.textContent = `${item.sender || ''} • ${fmtTs(item.created_at)}`;
+        card.appendChild(titleWrap);
+        card.appendChild(meta);
         card.onclick = async () => {
           closeChatInfo();
           await openMessageById(item.id);
         };
       } else {
         const title = item.media_name || item.media_kind || "Файл";
-        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(item.sender || '')} • ${fmtTs(item.created_at)}</div>`;
+        const titleWrap = document.createElement("div");
+        const titleStrong = document.createElement("b");
+        titleStrong.textContent = title;
+        titleWrap.appendChild(titleStrong);
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.textContent = `${item.sender || ''} • ${fmtTs(item.created_at)}`;
+        card.appendChild(titleWrap);
+        card.appendChild(meta);
         card.onclick = async () => {
           closeChatInfo();
           await openMessageById(item.id);
@@ -2379,13 +2425,40 @@
   async function loadChatOverview(keyword){
     const data = await api(`/api/chats/${encodeURIComponent(activeChatId)}/overview?q=${encodeURIComponent(keyword||'')}`);
     const msgs = data.messages || [];
+    const media = data.media || [];
+    const links = data.links || [];
+    const members = data.members || [];
     chatInfoState.data = data;
-    $("chatInfoResults").innerHTML = `<b>Сообщения:</b><br>${msgs.map(m=>`${escapeHtml(m.sender)}: ${escapeHtml((m.text||'').slice(0,80))}`).join('<br>') || 'нет'}`;
+
+    const resultsBox = $("chatInfoResults");
+    resultsBox.textContent = "";
+    const resultsTitle = document.createElement("b");
+    resultsTitle.textContent = "Сообщения:";
+    resultsBox.appendChild(resultsTitle);
+    if (!msgs.length){
+      const empty = document.createElement("div");
+      empty.className = "small";
+      empty.textContent = "нет";
+      resultsBox.appendChild(empty);
+    } else {
+      for (const m of msgs){
+        const row = document.createElement("div");
+        row.className = "small";
+        row.textContent = `${m.sender || ""}: ${String(m.text || "").slice(0,80)}`;
+        resultsBox.appendChild(row);
+      }
+    }
 
     const mediaBox = $("chatInfoMedia");
-    mediaBox.innerHTML = `<b>Медиа:</b>`;
+    mediaBox.textContent = "";
+    const mediaTitle = document.createElement("b");
+    mediaTitle.textContent = "Медиа:";
+    mediaBox.appendChild(mediaTitle);
     if (!media.length){
-      mediaBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+      const empty = document.createElement("div");
+      empty.className = "small";
+      empty.textContent = "нет";
+      mediaBox.appendChild(empty);
     } else {
       const wrap = document.createElement("div");
       wrap.className = "overview-grid";
@@ -2394,7 +2467,15 @@
         card.type = "button";
         card.className = "overview-item";
         const title = m.media_name || m.media_kind || "Файл";
-        card.innerHTML = `<div><b>${escapeHtml(title)}</b></div><div class="small">${escapeHtml(m.sender || '')} • ${fmtTs(m.created_at)}</div>`;
+        const titleWrap = document.createElement("div");
+        const titleStrong = document.createElement("b");
+        titleStrong.textContent = title;
+        titleWrap.appendChild(titleStrong);
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.textContent = `${m.sender || ''} • ${fmtTs(m.created_at)}`;
+        card.appendChild(titleWrap);
+        card.appendChild(meta);
         card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
         wrap.appendChild(card);
       }
@@ -2402,29 +2483,55 @@
     }
 
     const linksBox = $("chatInfoLinks");
-    linksBox.innerHTML = `<b>Ссылки:</b>`;
+    linksBox.textContent = "";
+    const linksTitle = document.createElement("b");
+    linksTitle.textContent = "Ссылки:";
+    linksBox.appendChild(linksTitle);
     if (!links.length){
-      linksBox.insertAdjacentHTML("beforeend", `<div class="small">нет</div>`);
+      const empty = document.createElement("div");
+      empty.className = "small";
+      empty.textContent = "нет";
+      linksBox.appendChild(empty);
     } else {
       for (const l of links){
         const raw = String((l.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
-        const url = raw ? (raw.startsWith("http") ? raw : `https://${raw}`) : "";
+        const safeUrl = extractSafeHttpUrl(raw);
         const row = document.createElement("div");
         row.className = "small";
-        row.innerHTML = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(raw)}</a>` : escapeHtml((l.text||'').slice(0,90));
+        if (safeUrl){
+          const link = document.createElement("a");
+          link.href = safeUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = raw;
+          row.appendChild(link);
+        } else {
+          row.textContent = String(l.text || "").slice(0,90);
+        }
         linksBox.appendChild(row);
       }
     }
 
     const membersBox = $("chatInfoMembers");
-    membersBox.innerHTML = `<b>Участники:</b>`;
+    membersBox.textContent = "";
+    const membersTitle = document.createElement("b");
+    membersTitle.textContent = "Участники:";
+    membersBox.appendChild(membersTitle);
     const memberWrap = document.createElement("div");
     memberWrap.className = "overview-grid";
     for (const m of members){
       const card = document.createElement("button");
       card.type = "button";
       card.className = "overview-item";
-      card.innerHTML = `<div><b>${escapeHtml(m.display_name || m.username)}</b></div><div class="small">@${escapeHtml(m.username || '')} • ${m.online ? 'в сети' : 'не в сети'}</div>`;
+      const titleWrap = document.createElement("div");
+      const titleStrong = document.createElement("b");
+      titleStrong.textContent = m.display_name || m.username;
+      titleWrap.appendChild(titleStrong);
+      const sub = document.createElement("div");
+      sub.className = "small";
+      sub.textContent = `@${m.username || ''} • ${m.online ? 'в сети' : 'не в сети'}`;
+      card.appendChild(titleWrap);
+      card.appendChild(sub);
       card.onclick = () => openUserProfile(m.username);
       memberWrap.appendChild(card);
     }
