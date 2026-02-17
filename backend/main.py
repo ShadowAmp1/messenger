@@ -204,7 +204,8 @@ def init_db() -> None:
                     sender TEXT NOT NULL,
                     text TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
-                    updated_at BIGINT,
+                    edited_at BIGINT,
+                    deleted_at BIGINT,
                     is_edited BOOLEAN DEFAULT FALSE,
                     deleted_for_all BOOLEAN DEFAULT FALSE,
                     media_kind TEXT,
@@ -345,6 +346,8 @@ def init_db() -> None:
                 """
             )
 
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at BIGINT;")
+            cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at BIGINT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at BIGINT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT FALSE;")
@@ -353,6 +356,8 @@ def init_db() -> None:
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_mime TEXT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name TEXT;")
             cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id BIGINT;")
+            cur.execute("UPDATE messages SET edited_at = updated_at WHERE edited_at IS NULL AND updated_at IS NOT NULL;")
+            cur.execute("UPDATE messages SET deleted_at = updated_at WHERE deleted_at IS NULL AND deleted_for_all = TRUE;")
             cur.execute("ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member';")
 
             # Remove legacy auto-created public room "general".
@@ -735,12 +740,15 @@ def get_user_messages_since(username: str, since_message_id: int, limit: int = 1
                 """
                 SELECT
                   m.id, m.chat_id, m.sender, m.text, m.created_at,
-                  m.updated_at, m.is_edited, m.deleted_for_all,
+                  m.edited_at, m.deleted_at, m.is_edited, m.deleted_for_all,
                   m.media_kind, m.media_url, m.media_mime, m.media_name,
                   u.avatar_url AS sender_avatar_url,
                   m.reply_to_id,
                   r.sender AS reply_sender,
-                  r.text AS reply_text
+                  CASE
+                    WHEN r.deleted_for_all THEN 'Это сообщение удалено'
+                    ELSE r.text
+                  END AS reply_text
                 FROM messages m
                 JOIN chat_members cm
                   ON cm.chat_id = m.chat_id AND cm.username = %s
@@ -1990,12 +1998,15 @@ def list_messages(
                 """
                 SELECT
                   m.id, m.chat_id, m.sender, m.text, m.created_at,
-                  m.updated_at, m.is_edited, m.deleted_for_all,
+                  m.edited_at, m.deleted_at, m.is_edited, m.deleted_for_all,
                   m.media_kind, m.media_url, m.media_mime, m.media_name,
                   u.avatar_url AS sender_avatar_url,
                   m.reply_to_id,
                   r.sender AS reply_sender,
-                  r.text AS reply_text
+                  CASE
+                    WHEN r.deleted_for_all THEN 'Это сообщение удалено'
+                    ELSE r.text
+                  END AS reply_text
                 FROM messages m
                 LEFT JOIN users u ON u.username = m.sender
                 LEFT JOIN messages r ON r.id = m.reply_to_id
@@ -2140,12 +2151,12 @@ async def create_text_message(
             reply_sender = None
             reply_text = None
             if reply_to_id > 0:
-                cur.execute("SELECT id, sender, text FROM messages WHERE id=%s AND chat_id=%s", (reply_to_id, chat_id))
+                cur.execute("SELECT id, sender, text, deleted_for_all FROM messages WHERE id=%s AND chat_id=%s", (reply_to_id, chat_id))
                 rep = cur.fetchone()
                 if not rep:
                     raise HTTPException(status_code=400, detail="reply_to message not found")
                 reply_sender = rep["sender"]
-                reply_text = (rep["text"] or "")[:160]
+                reply_text = "Это сообщение удалено" if rep["deleted_for_all"] else (rep["text"] or "")[:160]
 
             cur.execute(
                 """
@@ -2177,6 +2188,8 @@ async def create_text_message(
         "sender_avatar_url": sender_avatar_url,
         "text": text,
         "created_at": ts,
+        "edited_at": None,
+        "deleted_at": None,
         "is_edited": False,
         "deleted_for_all": False,
         "media_kind": None,
@@ -2274,6 +2287,8 @@ async def forward_message(
         "sender_avatar_url": sender_avatar_url,
         "text": body_text,
         "created_at": ts,
+        "edited_at": None,
+        "deleted_at": None,
         "is_edited": False,
         "deleted_for_all": False,
         "media_kind": src["media_kind"],
@@ -2303,7 +2318,7 @@ async def edit_message(
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT chat_id, sender, deleted_for_all FROM messages WHERE id=%s", (message_id,))
+            cur.execute("SELECT chat_id, sender, deleted_for_all, deleted_at FROM messages WHERE id=%s", (message_id,))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Message not found")
@@ -2315,13 +2330,14 @@ async def edit_message(
             if row["deleted_for_all"]:
                 raise HTTPException(status_code=400, detail="Message deleted")
 
+            edited_at = now_ts()
             cur.execute(
                 """
                 UPDATE messages
-                SET text=%s, is_edited=TRUE, updated_at=%s
+                SET text=%s, is_edited=TRUE, edited_at=%s
                 WHERE id=%s
                 """,
-                (new_text, now_ts(), message_id),
+                (new_text, edited_at, message_id),
             )
         conn.commit()
 
@@ -2330,6 +2346,8 @@ async def edit_message(
         "chat_id": chat_id,
         "id": message_id,
         "text": new_text,
+        "edited_at": edited_at,
+        "is_edited": True,
     })
     return {"ok": True}
 
@@ -2370,9 +2388,10 @@ async def delete_message(
             if row["sender"] != username:
                 raise HTTPException(status_code=403, detail="Only sender can delete for all")
 
+            deleted_at = now_ts()
             cur.execute(
-                "UPDATE messages SET deleted_for_all=TRUE, updated_at=%s WHERE id=%s",
-                (now_ts(), message_id),
+                "UPDATE messages SET deleted_for_all=TRUE, deleted_at=%s WHERE id=%s",
+                (deleted_at, message_id),
             )
         conn.commit()
 
@@ -2380,6 +2399,7 @@ async def delete_message(
         "type": "message_deleted_all",
         "chat_id": chat_id,
         "id": message_id,
+        "deleted_at": deleted_at,
     })
     return {"ok": True}
 
@@ -2521,6 +2541,8 @@ async def upload_media(
         "sender_avatar_url": sender_avatar_url,
         "text": caption,
         "created_at": ts,
+        "edited_at": None,
+        "deleted_at": None,
         "is_edited": False,
         "deleted_for_all": False,
         "media_kind": kind,
