@@ -1609,19 +1609,23 @@
       const item = document.createElement("div");
       item.className = "chatitem" + (c.id === activeChatId ? " active" : "");
 
+      const avatar = document.createElement("div");
+      avatar.className = "chat-avatar";
+      const title = computeChatTitle(c).replace(/^ЛС:\s*/, "").trim();
+      avatar.textContent = (title[0] || "#").toUpperCase();
+
       const left = document.createElement("div");
       left.className = "left";
 
-      const title = computeChatTitle(c);
       const t1 = document.createElement("div");
       t1.className = "title";
-      t1.textContent = title.replace(/^ЛС:\s*/, "");
+      t1.textContent = title;
 
       const t2 = document.createElement("div");
       t2.className = "sub";
       if (c.last_text){
         const sender = c.last_sender === me ? "Ты" : c.last_sender;
-        t2.textContent = `${sender}: ${String(c.last_text).slice(0,44)}`;
+        t2.textContent = `${sender}: ${String(c.last_text)}`;
       } else {
         t2.textContent = "Нет сообщений";
       }
@@ -1630,23 +1634,38 @@
       left.appendChild(t2);
 
       const right = document.createElement("div");
-      right.style.display = "flex";
-      right.style.gap = "8px";
-      right.style.alignItems = "center";
+      right.className = "chat-right";
+
+      const meta = document.createElement("div");
+      meta.className = "chat-meta";
+
+      const time = document.createElement("div");
+      time.className = "chat-time";
+      time.textContent = c.last_created_at ? fmtTs(c.last_created_at) : "";
+      meta.appendChild(time);
+
+      const badges = document.createElement("div");
+      badges.className = "chat-badges";
 
       if (c.unread && Number(c.unread) > 0 && c.id !== activeChatId){
         const u = document.createElement("span");
         u.className = "unread";
         u.textContent = String(c.unread);
-        right.appendChild(u);
+        badges.appendChild(u);
       }
 
       if (isChatMuted(c.id)){
         const m = document.createElement("span");
         m.className = "badge";
         m.textContent = "🔕";
-        right.appendChild(m);
+        badges.appendChild(m);
       }
+
+      meta.appendChild(badges);
+      right.appendChild(meta);
+
+      const actions = document.createElement("div");
+      actions.className = "chat-actions";
 
       if (canDeleteChat(c)){
         const del = document.createElement("button");
@@ -1666,9 +1685,12 @@
             addSystem("❌ " + (err.message || err));
           }
         };
-        right.appendChild(del);
+        actions.appendChild(del);
       }
 
+      if (actions.childElementCount) right.appendChild(actions);
+
+      item.appendChild(avatar);
       item.appendChild(left);
       item.appendChild(right);
 
