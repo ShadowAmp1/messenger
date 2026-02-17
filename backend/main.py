@@ -835,6 +835,14 @@ async def broadcast_chat(chat_id: str, payload: dict) -> None:
     await broadcast_users(list_members(chat_id), payload)
 
 
+def active_connections_count(username: str) -> int:
+    return len(USER_SOCKETS.get(username, set()))
+
+
+def connected_members(usernames: List[str]) -> List[str]:
+    return [u for u in usernames if active_connections_count(u) > 0]
+
+
 # =========================
 # App
 # =========================
@@ -2004,7 +2012,7 @@ async def ws_user(ws: WebSocket):
                     "username": username,
                 })
 
-            elif t in {"call_offer", "call_answer", "call_reject", "call_end", "call_timeout"}:
+            elif t in {"call_offer", "call_answer", "call_accept", "call_reject", "call_end", "call_timeout", "call_ring_ack"}:
                 chat_id = (data.get("chat_id") or "").strip()
                 call_id = str(data.get("call_id") or "").strip()
                 mode = str(data.get("mode") or "voice").strip().lower()
@@ -2013,8 +2021,36 @@ async def ws_user(ws: WebSocket):
                 with db() as conn:
                     if not is_member(conn, chat_id, username):
                         continue
+                members = [u for u in list_members(chat_id) if u != username]
+                recipients_online = connected_members(members)
+                recipients = recipients_online
+
+                event_type = "call_answer" if t == "call_accept" else t
+                if event_type == "call_offer":
+                    event_type = "incoming_call"
+
+                if t == "call_offer":
+                    LOGGER.info("call_start from=%s to=%s", username, ",".join(members) or "-")
+                    LOGGER.info("callee online connections=%s", sum(active_connections_count(u) for u in members))
+
+                if t in {"call_answer", "call_accept", "call_reject", "call_ring_ack"}:
+                    LOGGER.info("%s received from=%s call_id=%s", t, username, call_id)
+
+                if t == "call_offer" and not recipients:
+                    await broadcast_users([username], {
+                        "type": "call_timeout",
+                        "chat_id": chat_id,
+                        "call_id": call_id,
+                        "mode": "video" if mode == "video" else "voice",
+                        "username": username,
+                        "started_at": int(data.get("started_at") or now_ts()),
+                        "duration": 0,
+                        "reason": "offline",
+                    })
+                    continue
+
                 payload = {
-                    "type": t,
+                    "type": event_type,
                     "chat_id": chat_id,
                     "call_id": call_id,
                     "mode": "video" if mode == "video" else "voice",
@@ -2023,7 +2059,11 @@ async def ws_user(ws: WebSocket):
                     "duration": int(data.get("duration") or 0),
                     "reason": str(data.get("reason") or "").strip(),
                 }
-                await broadcast_chat(chat_id, payload)
+                for target in recipients:
+                    for target_ws in list(USER_SOCKETS.get(target, set())):
+                        await ws_send_safe(target_ws, payload)
+                        if t == "call_offer":
+                            LOGGER.info("sent incoming_call to callee connection id=%s", id(target_ws))
     except WebSocketDisconnect:
         pass
     finally:
