@@ -2517,7 +2517,7 @@
     await loadContacts();
   }
 
-  const chatInfoState = { activeTab: "media", data: null };
+  const chatInfoState = { activeTab: "info", data: null };
 
   function setChatInfoTab(tab){
     chatInfoState.activeTab = tab;
@@ -2534,20 +2534,27 @@
     const data = chatInfoState.data || {};
     const media = data.media || [];
     const links = data.links || [];
+    const members = data.members || [];
+    const messages = data.messages || [];
 
     const mediaOnly = media.filter((m)=> ["image", "video"].includes(String(m.media_kind || "").toLowerCase()));
-    const voiceOnly = media.filter((m)=> String(m.media_kind || "").toLowerCase() === "audio");
-    const filesOnly = media.filter((m)=> !["image", "video", "audio"].includes(String(m.media_kind || "").toLowerCase()));
 
     const map = {
-      media: { title: "Медиа", items: mediaOnly, empty: "В чате пока нет фото/видео" },
-      files: { title: "Файлы", items: filesOnly, empty: "В чате пока нет файлов" },
-      voice: { title: "Голосовые", items: voiceOnly, empty: "В чате пока нет голосовых" },
-      links: { title: "Ссылки", items: links, empty: "В чате пока нет ссылок" },
-      members: { title: "Участники", items: data.members || [], empty: "В чате пока нет участников" },
+      info: {
+        title: "Info",
+        items: [
+          { label: "Найдено сообщений", value: messages.length },
+          { label: "Медиа (фото/видео)", value: mediaOnly.length },
+          { label: "Ссылки", value: links.length },
+          { label: "Участники", value: members.length },
+        ],
+        empty: "Информация о чате недоступна",
+      },
+      media: { title: "Media", items: mediaOnly, empty: "В чате пока нет фото/видео" },
+      members: { title: "Members", items: members, empty: "В чате пока нет участников" },
     };
 
-    const current = map[chatInfoState.activeTab] || map.media;
+    const current = map[chatInfoState.activeTab] || map.info;
     list.innerHTML = `<b>${current.title}:</b>`;
 
     if (!current.items.length){
@@ -2563,21 +2570,17 @@
       card.type = "button";
       card.className = "overview-item";
 
-      if (chatInfoState.activeTab === "links"){
-        const raw = String((item.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
+      if (chatInfoState.activeTab === "info"){
         const titleWrap = document.createElement("div");
         const titleStrong = document.createElement("b");
-        titleStrong.textContent = raw || "Ссылка";
+        titleStrong.textContent = item.label || "Параметр";
         titleWrap.appendChild(titleStrong);
         const meta = document.createElement("div");
         meta.className = "small";
-        meta.textContent = `${item.sender || ''} • ${fmtTs(item.created_at)}`;
+        meta.textContent = String(item.value ?? 0);
         card.appendChild(titleWrap);
         card.appendChild(meta);
-        card.onclick = async () => {
-          closeChatInfo();
-          await openMessageById(item.id);
-        };
+        card.onclick = () => {};
       } else if (chatInfoState.activeTab === "members"){
         const titleWrap = document.createElement("div");
         const titleStrong = document.createElement("b");
@@ -2616,7 +2619,7 @@
     $("chatInfoOverlay").classList.add('open');
     $("chatInfoOverlay").setAttribute('aria-hidden','false');
     $("chatInfoTitle").textContent = activeChatTitle;
-    setChatInfoTab("media");
+    setChatInfoTab("info");
     await loadChatOverview('');
   }
 
@@ -2975,7 +2978,7 @@ ${listText}
   };
   $("btnChatActionInfo").onclick = () => {
     closeChatActionsMenu();
-    openChatInfo();
+    openChatInfo().then(()=> setChatInfoTab("info"));
   };
   $("btnChatActionMedia").onclick = () => {
     closeChatActionsMenu();
