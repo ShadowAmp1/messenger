@@ -38,6 +38,7 @@
           <div class="profile-menu" id="profileMenu" aria-hidden="true">
             <button class="profile-menu-item" id="btnMenuMyProfile" type="button">👤 Мой профиль</button>
             <button class="profile-menu-item" id="btnMenuContacts" type="button">📇 Контакты</button>
+            <button class="profile-menu-item" id="btnMenuHelp" type="button">❓ Справка</button>
             <button class="profile-menu-item" id="btnMenuLogout" type="button">🚪 Выйти</button>
           </div>
         </div>
@@ -55,6 +56,7 @@
                   <button class="sidebar-more-item" id="btnRefreshChats" type="button">⟳ Обновить чаты</button>
                   <button class="sidebar-more-item" id="btnLoadHistory" type="button">🕘 История</button>
                   <button class="sidebar-more-item" id="btnContacts" type="button">📇 Контакты</button>
+                  <button class="sidebar-more-item" id="btnHelp" type="button">❓ Справка</button>
                   <button class="sidebar-more-item" id="btnInvite" type="button">✉️ Пригласить</button>
                   <button class="sidebar-more-item" id="btnMute" type="button">🔕 Тихий режим</button>
                 </div>
@@ -221,6 +223,25 @@
         </div>
 
         <div class="chat-info-list" id="chatInfoTabList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HELP -->
+  <div class="sheet-overlay" id="helpOverlay" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-top">
+        <b>Справка</b>
+        <button class="xbtn" id="btnCloseHelp" type="button">✕</button>
+      </div>
+      <div class="sheet-body">
+        <div class="help-list">
+          <div class="help-item"><b>Контекстное меню сообщений:</b> на ПК — ПКМ по сообщению, на телефоне — долгое нажатие.</div>
+          <div class="help-item"><b>Быстрый ответ:</b> открой контекстное меню сообщения и выбери «Ответить».</div>
+          <div class="help-item"><b>Горячее действие Enter:</b> Enter отправляет сообщение, Shift+Enter — новая строка.</div>
+          <div class="help-item"><b>Esc:</b> закрывает открытые меню/модалки.</div>
+          <div class="help-item"><b>Голосовое:</b> удерживай кнопку 🎤, чтобы записать, отпусти — откроется предпросмотр.</div>
+        </div>
       </div>
     </div>
   </div>
