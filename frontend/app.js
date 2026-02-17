@@ -96,6 +96,9 @@
 
   const msgElById = new Map();
   let lastMsgId = 0;
+  let oldestLoadedMessageId = null;
+  let hasMoreHistory = true;
+  let isHistoryLoading = false;
 
   function getLastMessageStorageKey(){
     return me ? `lastMessageId:${me}` : "lastMessageId";
@@ -1673,6 +1676,9 @@
     clearReply();
     msgElById.clear();
     lastMsgId = loadLastMessageId();
+    oldestLoadedMessageId = null;
+    hasMoreHistory = true;
+    isHistoryLoading = false;
 
     typingState.clear();
     renderTyping();
@@ -1717,6 +1723,7 @@
   // Messages: render/edit/delete
   // =========================
   function addMsg(m, opts = {}){
+    const prepend = !!opts.prepend;
     if (isSystemSender(m)){
       if (opts.notifySystem !== false){
         showSystemToast(m.text || "Системное сообщение");
@@ -1881,6 +1888,9 @@
     if (messageId && msgElById.has(messageId)) return;
 
     msgElById.set(messageId, div);
+    if (messageId){
+      oldestLoadedMessageId = oldestLoadedMessageId === null ? messageId : Math.min(oldestLoadedMessageId, messageId);
+    }
     lastMsgId = Math.max(lastMsgId, messageId);
     persistLastMessageId(lastMsgId);
 
@@ -1896,6 +1906,10 @@
     }
 
     const stick = isNearBottom(box);
+    if (prepend){
+      box.prepend(row);
+      return;
+    }
     box.appendChild(row);
     if (stick) {
       scrollToBottom(box);
@@ -1995,13 +2009,16 @@
     box.innerHTML = "";
     msgElById.clear();
     lastMsgId = loadLastMessageId();
+    oldestLoadedMessageId = null;
+    hasMoreHistory = true;
 
     addSystem(`📥 Loading: ${activeChatTitle}…`);
 
     try{
-      const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}`);
+      const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}&limit=50`);
       box.innerHTML = "";
       for (const m of (data.messages || [])) addMsg(m, { notifySystem: false });
+      hasMoreHistory = Boolean(data.has_more);
       scrollToBottom(box);
       updateToBottom();
       maybeMarkRead();
@@ -2010,6 +2027,32 @@
       const msg = String(e?.message || e || "");
       showNetworkError("Не удалось загрузить сообщения чата.");
       addSystem(`❌ Ошибка загрузки сообщений: ${msg || "повторите попытку."}`);
+    }
+  }
+
+  async function loadOlderMessages(){
+    if (!token || !activeChatId) return;
+    if (!hasMoreHistory || isHistoryLoading) return;
+    if (!oldestLoadedMessageId) return;
+
+    const box = $("msgs");
+    const prevHeight = box.scrollHeight;
+    const prevTop = box.scrollTop;
+    isHistoryLoading = true;
+
+    try{
+      const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}&before_id=${oldestLoadedMessageId}&limit=50`);
+      const items = data.messages || [];
+      for (let i = items.length - 1; i >= 0; i -= 1){
+        addMsg(items[i], { notifySystem: false, prepend: true });
+      }
+      hasMoreHistory = Boolean(data.has_more);
+      const nextHeight = box.scrollHeight;
+      box.scrollTop = prevTop + (nextHeight - prevHeight);
+    }catch(_){
+      showNetworkError("Не удалось подгрузить историю чата.");
+    }finally{
+      isHistoryLoading = false;
     }
   }
 
@@ -2946,7 +2989,13 @@ ${listText}
     });
   });
 
-  $("msgs").addEventListener("scroll", ()=> updateToBottom(), { passive:true });
+  $("msgs").addEventListener("scroll", ()=> {
+    updateToBottom();
+    const box = $("msgs");
+    if (box.scrollTop <= 40){
+      loadOlderMessages().catch(()=>{});
+    }
+  }, { passive:true });
   toBottomBtn.onclick = () => { scrollToBottom($("msgs")); updateToBottom(); };
 
   document.addEventListener("keydown", (e)=>{
