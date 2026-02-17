@@ -901,6 +901,7 @@
     if (!password) return showAuthError("Введите пароль.");
     authBusy = true;
     $("btnAuthSubmit").disabled = true;
+    $("btnAuthSubmit").classList.add("is-loading");
     $("btnAuthSubmit").textContent = (authMode==="login") ? "Входим…" : "Регистрируем…";
     try{
       const data = await api(authMode==="login" ? "/api/login" : "/api/register", "POST", {username, password});
@@ -928,6 +929,7 @@
     }finally{
       authBusy = false;
       $("btnAuthSubmit").disabled = false;
+      $("btnAuthSubmit").classList.remove("is-loading");
       $("btnAuthSubmit").textContent = (authMode==="login") ? "Вход" : "Регистрация";
     }
   }
@@ -1362,7 +1364,7 @@
 
           if (story.media_url){
             const openBtn = document.createElement("button");
-            openBtn.className = "btn";
+            openBtn.className = "btn btn--secondary";
             openBtn.type = "button";
             openBtn.textContent = "Открыть в плеере";
             openBtn.onclick = () => openMediaViewer(story.media_url, kind, story.caption || "История");
@@ -1371,9 +1373,10 @@
 
           if (data.can_manage){
             const del = document.createElement("button");
-            del.className = "trash";
+            del.className = "trash iconbtn";
             del.textContent = "🗑";
             del.title = "Удалить историю";
+            del.setAttribute("aria-label", "Удалить историю");
             del.onclick = async (e)=>{
               e.stopPropagation();
               await api(`/api/stories/${story.id}`, "DELETE");
@@ -1403,9 +1406,10 @@
           row.onclick = () => openMediaViewer(item.avatar_url, "image", item.current ? "Текущий аватар" : "Аватар");
           if (data.can_manage && item.id){
             const del = document.createElement("button");
-            del.className = "trash";
+            del.className = "trash iconbtn";
             del.textContent = "🗑";
             del.title = "Удалить из истории";
+            del.setAttribute("aria-label", "Удалить из истории");
             del.onclick = async (e)=>{
               e.stopPropagation();
               await api(`/api/avatar/history/${item.id}`, "DELETE");
@@ -1645,10 +1649,12 @@
       }
 
       if (canDeleteChat(c)){
-        const del = document.createElement("div");
-        del.className = "trash";
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "trash iconbtn";
         del.textContent = "🗑";
         del.title = "Удалить чат";
+        del.setAttribute("aria-label", "Удалить чат");
         del.onclick = async (e) => {
           e.stopPropagation();
           if (!confirm(`Удалить чат "${title}"?`)) return;
@@ -2271,7 +2277,7 @@
       const t = document.createElement("span");
       t.textContent = `${new Date((s.created_at||0)*1000).toLocaleTimeString()} • ${s.caption || "без подписи"}`;
       const del = document.createElement("button");
-      del.className = "btn";
+      del.className = "btn btn--danger";
       del.style.marginLeft = "6px";
       del.textContent = "Удалить";
       del.onclick = async ()=>{
@@ -2307,7 +2313,7 @@
       row.onclick = ()=>openMediaViewer(item.avatar_url, 'image', 'Аватар');
       const del = document.createElement('button');
       del.type = 'button';
-      del.className = 'btn danger';
+      del.className = 'btn btn--danger';
       del.textContent = 'Удалить';
       del.onclick = async (e)=>{
         e.stopPropagation();
@@ -2407,7 +2413,7 @@
 
       const profileBtn = document.createElement('button');
       profileBtn.type = 'button';
-      profileBtn.className = 'btn contact-action-btn';
+      profileBtn.className = 'btn btn--secondary contact-action-btn';
       profileBtn.textContent = 'Профиль';
       profileBtn.onclick = async ()=>{
         closeContacts();
@@ -2416,7 +2422,7 @@
 
       const dmBtn = document.createElement('button');
       dmBtn.type = 'button';
-      dmBtn.className = 'btn contact-action-btn';
+      dmBtn.className = 'btn btn--secondary contact-action-btn';
       dmBtn.textContent = 'SMS';
       dmBtn.title = `Написать @${c.username}`;
       dmBtn.onclick = async ()=>{
@@ -2788,12 +2794,12 @@ ${listText}
     row.style.marginTop = "8px";
 
     const save = document.createElement("button");
-    save.className = "btn";
+    save.className = "btn btn--secondary";
     save.textContent = "Save";
     save.style.flex = "1";
 
     const cancel = document.createElement("button");
-    cancel.className = "btn danger";
+    cancel.className = "btn btn--danger";
     cancel.textContent = "Отмена";
     cancel.style.flex = "1";
 

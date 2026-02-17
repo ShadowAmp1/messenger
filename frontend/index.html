@@ -94,15 +94,15 @@
           <div id="storiesBar" class="stories-bar"></div>
           <div id="pinsBar" class="small pins-bar is-hidden"></div>
           <div class="msgs" id="msgs"></div>
-          <div class="to-bottom" id="btnToBottom" title="Вниз">⬇️</div>
+          <button class="to-bottom iconbtn" id="btnToBottom" type="button" title="Вниз" aria-label="Прокрутить вниз">⬇️</button>
 
           <div class="composer">
-            <button id="btnAttach" type="button" title="Фото/Видео/Аудио">📎</button>
+            <button class="iconbtn" id="btnAttach" type="button" title="Фото/Видео/Аудио" aria-label="Прикрепить файл">📎</button>
             <input id="file" class="is-hidden" type="file" accept="image/*,video/*,audio/*" />
-            <button id="btnRecHold" type="button" title="Удерживайте для записи">🎙️</button>
+            <button class="iconbtn" id="btnRecHold" type="button" title="Удерживайте для записи" aria-label="Записать голосовое">🎙️</button>
             <div id="replyBox" class="small reply-box is-hidden"></div>
             <input id="text" placeholder="Напиши сообщение." />
-            <button id="btnSend" type="button">➤</button>
+            <button class="iconbtn" id="btnSend" type="button" aria-label="Отправить сообщение">➤</button>
           </div>
 
           <div class="statusbar">
@@ -125,7 +125,7 @@
           <button class="tab active" id="tabLogin" type="button">Вход</button>
           <button class="tab" id="tabRegister" type="button">Регистрация</button>
         </div>
-        <button class="xbtn" id="btnCloseAuth" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseAuth" type="button" aria-label="Закрыть окно авторизации">✕</button>
       </div>
       <div class="modal-body">
         <input id="authUsername" placeholder="логин (3-20: a-z 0-9 _)" autocomplete="username" />
@@ -142,7 +142,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b id="sheetTitle">Создать</b>
-        <button class="xbtn" id="btnCloseSheet" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseSheet" type="button" aria-label="Закрыть форму">✕</button>
       </div>
       <div class="sheet-body">
         <input id="sheetInput" placeholder="" />
@@ -160,7 +160,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b>Профиль</b>
-        <button class="xbtn" id="btnCloseProfile" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseProfile" type="button" aria-label="Закрыть профиль">✕</button>
       </div>
       <div class="sheet-body">
         <div class="small">Имя</div>
@@ -190,7 +190,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b>Контакты</b>
-        <button class="xbtn" id="btnCloseContacts" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseContacts" type="button" aria-label="Закрыть контакты">✕</button>
       </div>
       <div class="sheet-body">
         <div class="row">
@@ -207,7 +207,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b id="chatInfoTitle">Инфо чата</b>
-        <button class="xbtn" id="btnCloseChatInfo" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseChatInfo" type="button" aria-label="Закрыть информацию о чате">✕</button>
       </div>
       <div class="sheet-body">
         <input id="chatInfoSearch" placeholder="Поиск по ключевому слову" />
@@ -232,7 +232,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b>Справка</b>
-        <button class="xbtn" id="btnCloseHelp" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseHelp" type="button" aria-label="Закрыть справку">✕</button>
       </div>
       <div class="sheet-body">
         <div class="help-list">
@@ -253,7 +253,7 @@
     <div class="sheet" role="dialog" aria-modal="true">
       <div class="sheet-top">
         <b id="userProfileTitle">Профиль</b>
-        <button class="xbtn" id="btnCloseUserProfile" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseUserProfile" type="button" aria-label="Закрыть профиль пользователя">✕</button>
       </div>
       <div class="sheet-body">
         <img id="userProfileAvatar" class="avatar-large" alt="avatar" style="display:none;"/>
@@ -274,7 +274,7 @@
     <div class="modal media-viewer" role="dialog" aria-modal="true">
       <div class="modal-top">
         <b id="mediaViewerTitle">Медиа</b>
-        <button class="xbtn" id="btnCloseMediaViewer" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseMediaViewer" type="button" aria-label="Закрыть просмотр медиа">✕</button>
       </div>
       <div class="modal-body">
         <div id="mediaViewerContent"></div>
@@ -287,7 +287,7 @@
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-top">
         <b>Голосовое</b>
-        <button class="xbtn" id="btnCloseVoicePreview" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseVoicePreview" type="button" aria-label="Закрыть предпросмотр голосового">✕</button>
       </div>
       <div class="modal-body">
         <div id="voicePreviewPlayer"></div>
@@ -305,7 +305,7 @@
     <div class="modal call-modal" role="dialog" aria-modal="true">
       <div class="modal-top">
         <b id="callTitle">Звонок</b>
-        <button class="xbtn" id="btnCloseCall" type="button">✕</button>
+        <button class="xbtn iconbtn" id="btnCloseCall" type="button" aria-label="Закрыть звонок">✕</button>
       </div>
       <div class="modal-body">
         <div class="small" id="callHint">Подготовка…</div>
