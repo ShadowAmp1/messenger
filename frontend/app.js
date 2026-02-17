@@ -2180,13 +2180,14 @@
     footer.appendChild(timeMeta);
     div.appendChild(footer);
 
-    stack.appendChild(div);
+    const main = document.createElement("div");
+    main.className = "msg-main" + ((m.sender === me) ? " me" : "");
+    main.appendChild(div);
 
     const reacts = document.createElement("div");
     reacts.className = "reactions";
     reacts.dataset.role = "reactions";
     renderReactions(reacts, m.id, m.reactions || {}, m.my_reactions || []);
-    stack.appendChild(reacts);
 
     const actionCol = document.createElement("div");
     actionCol.className = "msg-actions-col";
@@ -2200,6 +2201,15 @@
       openEmojiPicker(m.id, addBtn);
     };
     actionCol.appendChild(addBtn);
+
+    if (m.sender === me){
+      main.appendChild(actionCol);
+    } else {
+      main.prepend(actionCol);
+    }
+
+    stack.appendChild(main);
+    stack.appendChild(reacts);
 
     // context menu
     stack.addEventListener("contextmenu", (e)=>{
@@ -2230,11 +2240,9 @@
     avatarNode.onclick = () => openUserProfile(messageAuthor);
     if (messageAuthor === me){
       row.appendChild(stack);
-      row.appendChild(actionCol);
       row.appendChild(avatarNode);
     } else {
       row.appendChild(avatarNode);
-      row.appendChild(actionCol);
       row.appendChild(stack);
     }
 
