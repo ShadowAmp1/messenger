@@ -996,6 +996,15 @@
         return;
       }
 
+      if (data.type === "ping"){
+        if (ws && ws.readyState === 1){
+          try{
+            ws.send(JSON.stringify({ type: "pong", ts: data.ts || Date.now() }));
+          }catch(_){ }
+        }
+        return;
+      }
+
       // typing (server sends for any chat)
       if (data.type === "typing"){
         if (data.chat_id === activeChatId){

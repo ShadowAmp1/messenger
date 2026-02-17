@@ -5,6 +5,7 @@ import time
 import json
 import re
 import logging
+import asyncio
 import hmac
 import hashlib
 import secrets
@@ -94,6 +95,8 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_AUTH = int(os.environ.get("RATE_LIMIT_MAX_AUTH", "20"))
 RATE_LIMIT_MAX_SEND = int(os.environ.get("RATE_LIMIT_MAX_SEND", "100"))
+WS_HEARTBEAT_INTERVAL_SECONDS = float(os.environ.get("WS_HEARTBEAT_INTERVAL_SECONDS", "20"))
+WS_HEARTBEAT_TIMEOUT_SECONDS = float(os.environ.get("WS_HEARTBEAT_TIMEOUT_SECONDS", "45"))
 
 def parse_cors_origins(value: Optional[str]) -> List[str]:
     if value is None or not value.strip():
@@ -1814,6 +1817,24 @@ async def ws_user(ws: WebSocket):
 
     await ws.accept()
     _ws_add(username, ws)
+    last_pong_at = time.monotonic()
+    stop_heartbeat = asyncio.Event()
+
+    async def heartbeat_loop() -> None:
+        nonlocal last_pong_at
+        try:
+            while not stop_heartbeat.is_set():
+                await asyncio.sleep(WS_HEARTBEAT_INTERVAL_SECONDS)
+                if stop_heartbeat.is_set():
+                    break
+                if (time.monotonic() - last_pong_at) > WS_HEARTBEAT_TIMEOUT_SECONDS:
+                    await ws.close(code=1011, reason="heartbeat timeout")
+                    break
+                await ws_send_safe(ws, {"type": "ping", "ts": now_ts()})
+        except Exception:
+            pass
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
 
     try:
         while True:
@@ -1824,6 +1845,10 @@ async def ws_user(ws: WebSocket):
                 continue
 
             t = data.get("type")
+            if t == "pong":
+                last_pong_at = time.monotonic()
+                continue
+
             if t == "typing":
                 chat_id = (data.get("chat_id") or "").strip()
                 is_typing = bool(data.get("is_typing"))
@@ -1889,6 +1914,8 @@ async def ws_user(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        stop_heartbeat.set()
+        heartbeat_task.cancel()
         _ws_remove(username, ws)
 
 
