@@ -1832,14 +1832,17 @@
     const row = document.createElement("div");
     row.className = "msg-row" + ((m.sender === me) ? " me" : "");
 
+    const stack = document.createElement("div");
+    stack.className = "msg-stack" + ((m.sender === me) ? " me" : "");
+    stack.dataset.msgId = String(m.id || "");
+    stack.dataset.sender = String(m.sender || "");
+    stack.dataset.deletedForAll = String(!!m.deleted_for_all);
+    stack.dataset.editedAt = String(m.edited_at || "");
+    stack.dataset.deletedAt = String(m.deleted_at || "");
+    stack.dataset.myReactions = JSON.stringify(m.my_reactions || []);
+
     const div = document.createElement("div");
     div.className = "msg" + ((m.sender === me) ? " me" : "");
-    div.dataset.msgId = String(m.id || "");
-    div.dataset.sender = String(m.sender || "");
-    div.dataset.deletedForAll = String(!!m.deleted_for_all);
-    div.dataset.editedAt = String(m.edited_at || "");
-    div.dataset.deletedAt = String(m.deleted_at || "");
-    div.dataset.myReactions = JSON.stringify(m.my_reactions || []);
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -1851,18 +1854,7 @@
     left.className = "sender-link";
     left.textContent = messageAuthor || "—";
     left.onclick = () => openUserProfile(messageAuthor);
-    const right = document.createElement("span");
-    right.textContent = fmtTs(m.created_at);
-
-    if (m.is_edited){
-      const ed = document.createElement("span");
-      ed.className = "edited";
-      ed.textContent = "изменено";
-      right.appendChild(ed);
-    }
-
     meta.appendChild(left);
-    meta.appendChild(right);
     div.appendChild(meta);
 
     const body = document.createElement("div");
@@ -1943,14 +1935,33 @@
       div.appendChild(body);
     }
 
+    const footer = document.createElement("div");
+    footer.className = "msg-footer";
+
     // ticks for my messages
     if (m.sender === me){
       const st = document.createElement("div");
       st.className = "ticks";
       st.dataset.role = "status";
       st.textContent = "✓"; // sent
-      div.appendChild(st);
+      footer.appendChild(st);
     }
+
+    const timeMeta = document.createElement("span");
+    timeMeta.className = "meta-time";
+    timeMeta.dataset.role = "meta-time";
+    timeMeta.textContent = fmtTs(m.created_at);
+
+    if (m.is_edited){
+      const ed = document.createElement("span");
+      ed.className = "edited";
+      ed.textContent = "изменено";
+      timeMeta.appendChild(ed);
+    }
+    footer.appendChild(timeMeta);
+    div.appendChild(footer);
+
+    stack.appendChild(div);
 
     const reacts = document.createElement("div");
     reacts.className = "reactions";
@@ -1965,26 +1976,26 @@
       openEmojiPicker(m.id, addBtn);
     };
     reacts.appendChild(addBtn);
-    div.appendChild(reacts);
+    stack.appendChild(reacts);
 
     // context menu
-    div.addEventListener("contextmenu", (e)=>{
+    stack.addEventListener("contextmenu", (e)=>{
       e.preventDefault();
-      openCtxForMsg(div, e.clientX, e.clientY);
+      openCtxForMsg(stack, e.clientX, e.clientY);
     });
 
     let lpTimer = null;
-    div.addEventListener("pointerdown", (e)=>{
+    stack.addEventListener("pointerdown", (e)=>{
       if (e.pointerType === "mouse") return;
-      lpTimer = setTimeout(()=> openCtxForMsg(div, e.clientX, e.clientY), 520);
+      lpTimer = setTimeout(()=> openCtxForMsg(stack, e.clientX, e.clientY), 520);
     });
-    div.addEventListener("pointerup", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
-    div.addEventListener("pointercancel", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
+    stack.addEventListener("pointerup", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
+    stack.addEventListener("pointercancel", ()=> { if (lpTimer) clearTimeout(lpTimer); lpTimer = null; });
 
     const messageId = Number(m.id || 0);
     if (messageId && msgElById.has(messageId)) return;
 
-    msgElById.set(messageId, div);
+    msgElById.set(messageId, stack);
     if (messageId){
       oldestLoadedMessageId = oldestLoadedMessageId === null ? messageId : Math.min(oldestLoadedMessageId, messageId);
     }
@@ -1995,11 +2006,11 @@
     avatarNode.classList.add("clickable");
     avatarNode.onclick = () => openUserProfile(messageAuthor);
     if (messageAuthor === me){
-      row.appendChild(div);
+      row.appendChild(stack);
       row.appendChild(avatarNode);
     } else {
       row.appendChild(avatarNode);
-      row.appendChild(div);
+      row.appendChild(stack);
     }
 
     const stick = isNearBottom(box);
@@ -2074,12 +2085,12 @@
     const body = el.querySelector('[data-role="body"]');
     if (body) body.textContent = text;
 
-    const metaRight = el.querySelector(".meta span");
-    if (metaRight && isEdited && !metaRight.querySelector(".edited")){
+    const metaTime = el.querySelector('[data-role="meta-time"]');
+    if (metaTime && isEdited && !metaTime.querySelector(".edited")){
       const ed = document.createElement("span");
       ed.className = "edited";
       ed.textContent = "изменено";
-      metaRight.appendChild(ed);
+      metaTime.appendChild(ed);
     }
   }
 
