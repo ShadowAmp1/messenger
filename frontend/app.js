@@ -18,6 +18,15 @@
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
+  const FEATURE_FLAGS = {
+    calls: {
+      enabled: true,
+      unstable: true,
+      hideWhenUnstable: false
+    }
+  };
+
+
   const THEME_KEY = "theme";
   function applyTheme(theme){
     const root = document.documentElement;
@@ -526,10 +535,25 @@
     const disabled = !activeChatId;
     const toggle = $("btnChatActions");
     if (toggle) toggle.disabled = disabled;
+
+    const callsAreBeta = FEATURE_FLAGS.calls.unstable;
+    const callsFeatureAvailable = FEATURE_FLAGS.calls.enabled && !(callsAreBeta && FEATURE_FLAGS.calls.hideWhenUnstable);
+
     ["btnChatActionInfo", "btnChatActionMedia", "btnChatActionMembers"].forEach((id)=>{
       const btn = $(id);
       if (btn) btn.disabled = disabled;
     });
+
+    ["btnChatActionVoiceCall", "btnChatActionVideoCall"].forEach((id)=>{
+      const btn = $(id);
+      if (!btn) return;
+      btn.disabled = disabled || !callsFeatureAvailable;
+      btn.classList.toggle("is-hidden", !callsFeatureAvailable);
+      btn.setAttribute("aria-hidden", callsFeatureAvailable ? "false" : "true");
+      const betaBadge = btn.querySelector(".beta-badge");
+      if (betaBadge) betaBadge.classList.toggle("is-hidden", !callsAreBeta);
+    });
+
     if (disabled) closeChatActionsMenu();
   }
 
@@ -3189,6 +3213,14 @@ ${listText}
   $("btnChatActionMembers").onclick = () => {
     closeChatActionsMenu();
     openChatInfo().then(()=> setChatInfoTab("members"));
+  };
+  $("btnChatActionVoiceCall").onclick = () => {
+    closeChatActionsMenu();
+    startCall("voice");
+  };
+  $("btnChatActionVideoCall").onclick = () => {
+    closeChatActionsMenu();
+    startCall("video");
   };
   $("btnToggleCallMic").onclick = () => toggleCallMic();
   $("btnToggleCallCamera").onclick = () => toggleCallCamera();
