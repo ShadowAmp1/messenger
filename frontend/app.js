@@ -391,10 +391,37 @@
     }catch(_){ }
   }
 
+  let chatActionsMenuOpen = false;
+
+  function closeChatActionsMenu(){
+    const menu = $("chatActionsMenu");
+    const toggle = $("btnChatActions");
+    if (!menu || !toggle) return;
+    chatActionsMenuOpen = false;
+    menu.classList.remove("open");
+    menu.setAttribute("aria-hidden", "true");
+    toggle.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleChatActionsMenu(){
+    const menu = $("chatActionsMenu");
+    const toggle = $("btnChatActions");
+    if (!menu || !toggle) return;
+    chatActionsMenuOpen = !chatActionsMenuOpen;
+    menu.classList.toggle("open", chatActionsMenuOpen);
+    menu.setAttribute("aria-hidden", chatActionsMenuOpen ? "false" : "true");
+    toggle.setAttribute("aria-expanded", chatActionsMenuOpen ? "true" : "false");
+  }
+
   function updateChatActionState(){
     const disabled = !activeChatId;
-    $("btnStartVoiceCall").disabled = disabled;
-    $("btnStartVideoCall").disabled = disabled;
+    const toggle = $("btnChatActions");
+    if (toggle) toggle.disabled = disabled;
+    ["btnChatActionInfo", "btnChatActionMedia", "btnChatActionMembers"].forEach((id)=>{
+      const btn = $(id);
+      if (btn) btn.disabled = disabled;
+    });
+    if (disabled) closeChatActionsMenu();
   }
 
   function updateCallUi(){
@@ -2506,6 +2533,7 @@
       files: { title: "Файлы", items: filesOnly, empty: "В чате пока нет файлов" },
       voice: { title: "Голосовые", items: voiceOnly, empty: "В чате пока нет голосовых" },
       links: { title: "Ссылки", items: links, empty: "В чате пока нет ссылок" },
+      members: { title: "Участники", items: data.members || [], empty: "В чате пока нет участников" },
     };
 
     const current = map[chatInfoState.activeTab] || map.media;
@@ -2539,6 +2567,17 @@
           closeChatInfo();
           await openMessageById(item.id);
         };
+      } else if (chatInfoState.activeTab === "members"){
+        const titleWrap = document.createElement("div");
+        const titleStrong = document.createElement("b");
+        titleStrong.textContent = item.display_name || item.username || "Пользователь";
+        titleWrap.appendChild(titleStrong);
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.textContent = `@${item.username || ""} • ${item.online ? "в сети" : "не в сети"}`;
+        card.appendChild(titleWrap);
+        card.appendChild(meta);
+        card.onclick = () => openUserProfile(item.username);
       } else {
         const title = item.media_name || item.media_kind || "Файл";
         const titleWrap = document.createElement("div");
@@ -2578,9 +2617,6 @@
   async function loadChatOverview(keyword){
     const data = await api(`/api/chats/${encodeURIComponent(activeChatId)}/overview?q=${encodeURIComponent(keyword||'')}`);
     const msgs = data.messages || [];
-    const media = data.media || [];
-    const links = data.links || [];
-    const members = data.members || [];
     chatInfoState.data = data;
 
     const resultsBox = $("chatInfoResults");
@@ -2602,94 +2638,9 @@
       }
     }
 
-    const mediaBox = $("chatInfoMedia");
-    mediaBox.textContent = "";
-    const mediaTitle = document.createElement("b");
-    mediaTitle.textContent = "Медиа:";
-    mediaBox.appendChild(mediaTitle);
-    if (!media.length){
-      const empty = document.createElement("div");
-      empty.className = "small";
-      empty.textContent = "нет";
-      mediaBox.appendChild(empty);
-    } else {
-      const wrap = document.createElement("div");
-      wrap.className = "overview-grid";
-      for (const m of media){
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "overview-item";
-        const title = m.media_name || m.media_kind || "Файл";
-        const titleWrap = document.createElement("div");
-        const titleStrong = document.createElement("b");
-        titleStrong.textContent = title;
-        titleWrap.appendChild(titleStrong);
-        const meta = document.createElement("div");
-        meta.className = "small";
-        meta.textContent = `${m.sender || ''} • ${fmtTs(m.created_at)}`;
-        card.appendChild(titleWrap);
-        card.appendChild(meta);
-        card.onclick = () => openMediaViewer(m.media_url, m.media_kind || "", title);
-        wrap.appendChild(card);
-      }
-      mediaBox.appendChild(wrap);
-    }
-
-    const linksBox = $("chatInfoLinks");
-    linksBox.textContent = "";
-    const linksTitle = document.createElement("b");
-    linksTitle.textContent = "Ссылки:";
-    linksBox.appendChild(linksTitle);
-    if (!links.length){
-      const empty = document.createElement("div");
-      empty.className = "small";
-      empty.textContent = "нет";
-      linksBox.appendChild(empty);
-    } else {
-      for (const l of links){
-        const raw = String((l.text || "").match(/(https?:\/\/\S+|www\.\S+)/i)?.[0] || "").replace(/[),.;!?]+$/g, "");
-        const safeUrl = extractSafeHttpUrl(raw);
-        const row = document.createElement("div");
-        row.className = "small";
-        if (safeUrl){
-          const link = document.createElement("a");
-          link.href = safeUrl;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          link.textContent = raw;
-          row.appendChild(link);
-        } else {
-          row.textContent = String(l.text || "").slice(0,90);
-        }
-        linksBox.appendChild(row);
-      }
-    }
-
-    const membersBox = $("chatInfoMembers");
-    membersBox.textContent = "";
-    const membersTitle = document.createElement("b");
-    membersTitle.textContent = "Участники:";
-    membersBox.appendChild(membersTitle);
-    const memberWrap = document.createElement("div");
-    memberWrap.className = "overview-grid";
-    for (const m of members){
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "overview-item";
-      const titleWrap = document.createElement("div");
-      const titleStrong = document.createElement("b");
-      titleStrong.textContent = m.display_name || m.username;
-      titleWrap.appendChild(titleStrong);
-      const sub = document.createElement("div");
-      sub.className = "small";
-      sub.textContent = `@${m.username || ''} • ${m.online ? 'в сети' : 'не в сети'}`;
-      card.appendChild(titleWrap);
-      card.appendChild(sub);
-      card.onclick = () => openUserProfile(m.username);
-      memberWrap.appendChild(card);
-    }
-    membersBox.appendChild(memberWrap);
+    renderChatInfoTab();
   }
+
 
   // =========================
   // Context menu
@@ -3001,8 +2952,28 @@ ${listText}
   $("btnContacts").onclick = () => { closeSidebarMoreMenu(); openContacts(); };
   $("btnHelp").onclick = () => { closeSidebarMoreMenu(); openHelp(); };
   $("btnChatInfo").onclick = () => openChatInfo();
-  $("btnStartVoiceCall").onclick = () => startCall("voice");
-  $("btnStartVideoCall").onclick = () => startCall("video");
+  $("btnChatInfo").onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " "){
+      e.preventDefault();
+      openChatInfo();
+    }
+  };
+  $("btnChatActions").onclick = (e) => {
+    e.stopPropagation();
+    toggleChatActionsMenu();
+  };
+  $("btnChatActionInfo").onclick = () => {
+    closeChatActionsMenu();
+    openChatInfo();
+  };
+  $("btnChatActionMedia").onclick = () => {
+    closeChatActionsMenu();
+    openChatInfo().then(()=> setChatInfoTab("media"));
+  };
+  $("btnChatActionMembers").onclick = () => {
+    closeChatActionsMenu();
+    openChatInfo().then(()=> setChatInfoTab("members"));
+  };
   $("btnToggleCallMic").onclick = () => toggleCallMic();
   $("btnToggleCallCamera").onclick = () => toggleCallCamera();
   $("btnEndCall").onclick = () => endCall();
@@ -3046,6 +3017,14 @@ ${listText}
   });
   $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
+
+  document.addEventListener("click", (e) => {
+    const menu = $("chatActionsMenu");
+    const toggle = $("btnChatActions");
+    if (!chatActionsMenuOpen || !menu || !toggle) return;
+    if (menu.contains(e.target) || toggle.contains(e.target)) return;
+    closeChatActionsMenu();
+  });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
   $("helpOverlay").addEventListener("click", (e)=>{ if (e.target === $("helpOverlay")) closeHelp(); });
   $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
