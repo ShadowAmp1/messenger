@@ -33,7 +33,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 
@@ -513,14 +513,38 @@ def clear_refresh_cookie(response: Response) -> None:
 RATE_BUCKETS: Dict[str, List[int]] = {}
 
 
-def check_rate_limit(bucket: str, limit: int) -> None:
+class RateLimitExceeded(Exception):
+    def __init__(self, message: str, error: str, retry_after_seconds: int):
+        self.message = message
+        self.error = error
+        self.retry_after_seconds = retry_after_seconds
+
+
+def check_rate_limit(
+    bucket: str,
+    limit: int,
+    *,
+    error: str = "rate_limit_exceeded",
+    message: str = "Too many requests. Try again later.",
+) -> None:
     now = now_ts()
     start = now - RATE_LIMIT_WINDOW_SECONDS
     arr = [t for t in RATE_BUCKETS.get(bucket, []) if t >= start]
     if len(arr) >= limit:
-        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
+        retry_after = max(1, RATE_LIMIT_WINDOW_SECONDS - (now - arr[0]))
+        raise RateLimitExceeded(message=message, error=error, retry_after_seconds=retry_after)
     arr.append(now)
     RATE_BUCKETS[bucket] = arr
+
+
+def check_auth_rate_limit(request: Request, action: str) -> None:
+    host = request.client.host if request.client else "na"
+    check_rate_limit(
+        f"auth:{action}:{host}",
+        RATE_LIMIT_MAX_AUTH,
+        error="auth_rate_limited",
+        message="Слишком много попыток авторизации. Попробуйте позже.",
+    )
 
 
 def get_chat(conn, chat_id: str) -> Optional[dict]:
@@ -720,6 +744,19 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=_lifespan)
 
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(_request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        headers={"Retry-After": str(exc.retry_after_seconds)},
+        content={
+            "detail": exc.message,
+            "error": exc.error,
+            "retry_after_seconds": exc.retry_after_seconds,
+        },
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -858,7 +895,7 @@ class ContactCreateIn(BaseModel):
 # =========================
 @app.post("/api/register")
 def register(data: AuthIn, request: Request, response: Response):
-    check_rate_limit(f"auth:register:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
+    check_auth_rate_limit(request, "register")
     username = data.username.strip()
     password = data.password
 
@@ -890,7 +927,7 @@ def register(data: AuthIn, request: Request, response: Response):
 
 @app.post("/api/login")
 def login(data: AuthIn, request: Request, response: Response):
-    check_rate_limit(f"auth:login:{request.client.host if request.client else 'na'}", RATE_LIMIT_MAX_AUTH)
+    check_auth_rate_limit(request, "login")
     username = data.username.strip()
 
     with db() as conn:
@@ -914,6 +951,7 @@ def login(data: AuthIn, request: Request, response: Response):
 
 @app.post("/api/refresh")
 def refresh_tokens(request: Request, response: Response):
+    check_auth_rate_limit(request, "refresh")
     rt = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
     if not rt:
         raise HTTPException(status_code=400, detail="refresh_token required")

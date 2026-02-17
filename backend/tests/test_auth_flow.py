@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 from pathlib import Path
 
@@ -68,7 +69,7 @@ def test_register_then_login(monkeypatch):
     module.db = lambda: DummyConn()
     module.ensure_favorites_for = lambda username: None
     module.issue_refresh_token = lambda username: f"rt-{username}"
-    module.check_rate_limit = lambda key, limit: None
+    module.check_auth_rate_limit = lambda request, action: None
 
     register_response = module.register(
         module.AuthIn(username="alice", password="secret123"),
@@ -117,7 +118,7 @@ def test_login_invalid_credentials_returns_401(monkeypatch):
             return DummyCursor()
 
     module.db = lambda: DummyConn()
-    module.check_rate_limit = lambda key, limit: None
+    module.check_auth_rate_limit = lambda request, action: None
 
     with pytest.raises(module.HTTPException) as err:
         module.login(
@@ -212,6 +213,7 @@ def test_refresh_rotates_token(monkeypatch):
     module.db = lambda: DummyConn()
     module.now_ts = lambda: now
     module.secrets.token_urlsafe = lambda _n: "new-rt"
+    module.check_auth_rate_limit = lambda request, action: None
 
     response = Response()
     payload = module.refresh_tokens(DummyRequest(), response)
@@ -287,6 +289,7 @@ def test_refresh_reuse_revokes_active_sessions(monkeypatch):
 
     module.db = lambda: DummyConn()
     module.now_ts = lambda: now
+    module.check_auth_rate_limit = lambda request, action: None
 
     with pytest.raises(module.HTTPException) as err:
         module.refresh_tokens(DummyRequest(), Response())
@@ -295,3 +298,47 @@ def test_refresh_reuse_revokes_active_sessions(monkeypatch):
     assert err.value.detail == "Refresh token reuse detected"
     assert store["new-rt"]["revoked"] is True
     assert store["new-rt"]["compromised"] is True
+
+
+def test_refresh_uses_auth_rate_limit(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    calls = []
+
+    class DummyRequest:
+        cookies = {}
+
+    module.check_auth_rate_limit = lambda request, action: calls.append(action)
+
+    with pytest.raises(module.HTTPException) as err:
+        module.refresh_tokens(DummyRequest(), Response())
+
+    assert calls == ["refresh"]
+    assert err.value.status_code == 400
+
+
+def test_rate_limit_response_payload_contains_frontend_message(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    module.RATE_BUCKETS.clear()
+
+    with pytest.raises(module.RateLimitExceeded) as err:
+        module.check_rate_limit(
+            "auth:test:127.0.0.1",
+            1,
+            error="auth_rate_limited",
+            message="Слишком много попыток авторизации. Попробуйте позже.",
+        )
+        module.check_rate_limit(
+            "auth:test:127.0.0.1",
+            1,
+            error="auth_rate_limited",
+            message="Слишком много попыток авторизации. Попробуйте позже.",
+        )
+
+    response = asyncio.run(module.rate_limit_handler(None, err.value))
+    assert response.status_code == 429
+    assert response.headers["retry-after"]
+    payload = response.body.decode("utf-8")
+    assert "auth_rate_limited" in payload
+    assert "Слишком много попыток авторизации" in payload
