@@ -2186,16 +2186,20 @@
     reacts.className = "reactions";
     reacts.dataset.role = "reactions";
     renderReactions(reacts, m.id, m.reactions || {}, m.my_reactions || []);
+    stack.appendChild(reacts);
 
+    const actionCol = document.createElement("div");
+    actionCol.className = "msg-actions-col";
     const addBtn = document.createElement("button");
-    addBtn.className = "react add-react";
-    addBtn.textContent = "➕";
+    addBtn.className = "react msg-quick-add";
+    addBtn.type = "button";
+    addBtn.textContent = "+";
+    addBtn.setAttribute("aria-label", "Добавить реакцию");
     addBtn.onclick = (e) => {
       e.stopPropagation();
       openEmojiPicker(m.id, addBtn);
     };
-    reacts.appendChild(addBtn);
-    stack.appendChild(reacts);
+    actionCol.appendChild(addBtn);
 
     // context menu
     stack.addEventListener("contextmenu", (e)=>{
@@ -2226,9 +2230,11 @@
     avatarNode.onclick = () => openUserProfile(messageAuthor);
     if (messageAuthor === me){
       row.appendChild(stack);
+      row.appendChild(actionCol);
       row.appendChild(avatarNode);
     } else {
       row.appendChild(avatarNode);
+      row.appendChild(actionCol);
       row.appendChild(stack);
     }
 
@@ -2248,7 +2254,7 @@
   }
 
   function renderReactions(holder, messageId, reactionMap, myReactions){
-    holder.querySelectorAll(".react[data-emoji]").forEach(n => n.remove());
+    holder.innerHTML = "";
     for (const [emoji, cnt] of Object.entries(reactionMap || {})){
       const rb = document.createElement("button");
       rb.className = "react";
@@ -2259,7 +2265,7 @@
         e.stopPropagation();
         await toggleReaction(messageId, emoji);
       };
-      holder.insertBefore(rb, holder.querySelector(".add-react"));
+      holder.appendChild(rb);
     }
   }
 
