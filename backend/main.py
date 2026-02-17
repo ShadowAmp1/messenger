@@ -9,6 +9,7 @@ import asyncio
 import hmac
 import hashlib
 import secrets
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 from typing import Dict, Set, Optional, List, Any, Tuple
 
@@ -77,6 +78,7 @@ if DATABASE_URL.startswith("postgres://"):
 
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "25"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+MEDIA_LINK_TTL_SECONDS = int(os.environ.get("MEDIA_LINK_TTL_SECONDS", "300"))
 
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime"}  # mov
@@ -690,6 +692,46 @@ def now_ts() -> int:
     return int(time.time())
 
 
+def _sign_media_token_payload(payload: dict) -> str:
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    sig = hmac.new(JWT_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
+
+
+def _verify_media_token(token: str) -> dict:
+    token = (token or "").strip()
+    if not token or "." not in token:
+        raise HTTPException(status_code=403, detail="Invalid media token")
+    body, sig = token.rsplit(".", 1)
+    expected = hmac.new(JWT_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status_code=403, detail="Invalid media token")
+    payload = json.loads(body)
+    exp = int(payload.get("exp") or 0)
+    if exp <= now_ts():
+        raise HTTPException(status_code=403, detail="Media link expired")
+    return payload
+
+
+def build_media_access_url(chat_id: str, message_id: int, ttl_seconds: int = MEDIA_LINK_TTL_SECONDS) -> str:
+    ttl = max(30, int(ttl_seconds or MEDIA_LINK_TTL_SECONDS))
+    payload = {
+        "chat_id": chat_id,
+        "message_id": int(message_id),
+        "exp": now_ts() + ttl,
+    }
+    token = _sign_media_token_payload(payload)
+    return f"/api/media/access?token={quote(token, safe='')}"
+
+
+def rewrite_media_links(rows: List[dict]) -> None:
+    for row in rows:
+        media_url = (row.get("media_url") or "").strip()
+        if not media_url:
+            continue
+        row["media_url"] = build_media_access_url(str(row["chat_id"]), int(row["id"]))
+
+
 def extract_user_id_from_request(request: Request) -> Optional[str]:
     auth_header = request.headers.get("authorization")
     token = _extract_bearer(auth_header)
@@ -772,7 +814,9 @@ def get_user_messages_since(username: str, since_message_id: int, limit: int = 1
                 """,
                 (username, username, since_message_id, limit),
             )
-            return cur.fetchall()
+            rows = cur.fetchall()
+    rewrite_media_links(rows)
+    return rows
 
 
 async def broadcast_users(usernames: List[str], payload: dict) -> None:
@@ -1796,6 +1840,7 @@ def chat_overview(
                 (chat_id,),
             )
             media = cur.fetchall()
+            rewrite_media_links(media)
 
             cur.execute(
                 """
@@ -2078,6 +2123,7 @@ def list_messages(
         r["reactions"] = by_mid.get(int(r["id"]), {})
         r["my_reactions"] = my_by_mid.get(int(r["id"]), [])
 
+    rewrite_media_links(rows)
     return {"messages": rows, "has_more": has_more}
 
 
@@ -2324,7 +2370,7 @@ async def forward_message(
         "is_edited": False,
         "deleted_for_all": False,
         "media_kind": src["media_kind"],
-        "media_url": src["media_url"],
+        "media_url": (build_media_access_url(target_chat_id, new_id) if src["media_url"] else None),
         "media_mime": src["media_mime"],
         "media_name": src["media_name"],
         "reply_to_id": None,
@@ -2578,7 +2624,7 @@ async def upload_media(
         "is_edited": False,
         "deleted_for_all": False,
         "media_kind": kind,
-        "media_url": url,
+        "media_url": build_media_access_url(chat_id, msg_id),
         "media_mime": content_type,
         "media_name": media_name,
         "reply_to_id": None,
@@ -2587,7 +2633,38 @@ async def upload_media(
         "reactions": {},
     }
     await broadcast_chat(chat_id, payload)
-    return {"ok": True, "id": msg_id, "media_url": url, "media_kind": kind}
+    return {"ok": True, "id": msg_id, "media_url": build_media_access_url(chat_id, msg_id), "media_kind": kind}
+
+
+@app.get("/api/media/access")
+def access_media(token: str = Query(...)):
+    payload = _verify_media_token(token)
+    chat_id = str(payload.get("chat_id") or "").strip()
+    message_id = int(payload.get("message_id") or 0)
+    if not chat_id or message_id <= 0:
+        raise HTTPException(status_code=403, detail="Invalid media token")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT media_url, chat_id, deleted_for_all
+                FROM messages
+                WHERE id=%s
+                """,
+                (message_id,),
+            )
+            row = cur.fetchone()
+
+    if not row or row["deleted_for_all"]:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if row["chat_id"] != chat_id:
+        raise HTTPException(status_code=403, detail="Invalid media token")
+    media_url = (row.get("media_url") or "").strip()
+    if not media_url:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    return Response(status_code=307, headers={"Location": media_url})
 
 
 # =========================
