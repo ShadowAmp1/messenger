@@ -4,6 +4,7 @@ import os
 import time
 import json
 import re
+import logging
 import hmac
 import hashlib
 import secrets
@@ -44,6 +45,8 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))     # .../backend
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                  # .../
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")        # .../frontend
 FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
+
+LOGGER = logging.getLogger("messenger.api")
 
 
 # =========================
@@ -604,6 +607,30 @@ def now_ts() -> int:
     return int(time.time())
 
 
+def extract_user_id_from_request(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("authorization")
+    token = _extract_bearer(auth_header)
+    if not token:
+        token = (request.query_params.get("token") or "").strip()
+    if not token:
+        return None
+    try:
+        return str(jwt_verify(token).get("sub") or "").strip() or None
+    except HTTPException:
+        return None
+
+
+def get_build_meta() -> Dict[str, str]:
+    version = (os.environ.get("APP_VERSION") or os.environ.get("VERSION") or "unknown").strip() or "unknown"
+    commit = (
+        os.environ.get("APP_COMMIT")
+        or os.environ.get("COMMIT_SHA")
+        or os.environ.get("RENDER_GIT_COMMIT")
+        or "unknown"
+    ).strip() or "unknown"
+    return {"version": version, "commit": commit}
+
+
 # =========================
 # Realtime (Global WS per user)
 # =========================
@@ -665,6 +692,31 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    started = time.perf_counter()
+    user_id = extract_user_id_from_request(request)
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        latency_ms = round((time.perf_counter() - started) * 1000, 2)
+        LOGGER.info(
+            json.dumps(
+                {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": status_code,
+                    "latency_ms": latency_ms,
+                    "user_id": user_id,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
 # Serve frontend
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
@@ -687,7 +739,12 @@ def mobile_app_entry():
 
 @app.get("/api/health")
 def healthcheck():
-    return {"ok": True, "ts": now_ts()}
+    return {"ok": True, "ts": now_ts(), **get_build_meta()}
+
+
+@app.get("/health")
+def healthcheck_root():
+    return {"ok": True, **get_build_meta()}
 
 
 @app.get("/sw.js")
