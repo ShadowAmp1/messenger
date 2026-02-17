@@ -1714,15 +1714,105 @@
     });
   }
 
+  function renderChatListSkeleton(count = 6){
+    const list = $("chatlist");
+    list.innerHTML = "";
+    for (let i = 0; i < count; i += 1){
+      const row = document.createElement("div");
+      row.className = "chatitem skeleton-row";
+      row.setAttribute("aria-hidden", "true");
+      row.innerHTML = `
+        <div class="chat-avatar skeleton-block"></div>
+        <div class="left">
+          <div class="skeleton-line skeleton-line-title"></div>
+          <div class="skeleton-line"></div>
+        </div>
+      `;
+      list.appendChild(row);
+    }
+  }
+
+  function renderChatListError(message, onRetry){
+    const list = $("chatlist");
+    list.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "state-block";
+    wrap.innerHTML = `
+      <div class="state-title">Не удалось загрузить чаты</div>
+      <div class="state-sub">${escapeHtml(message || "Проверьте интернет и повторите попытку.")}</div>
+    `;
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "btn state-btn";
+    retryBtn.textContent = "Повторить";
+    retryBtn.onclick = () => onRetry && onRetry();
+    wrap.appendChild(retryBtn);
+    list.appendChild(wrap);
+  }
+
+  function renderMessagesSkeleton(count = 7){
+    const box = $("msgs");
+    box.innerHTML = "";
+    for (let i = 0; i < count; i += 1){
+      const row = document.createElement("div");
+      row.className = "msg-row" + (i % 3 === 0 ? " me" : "");
+      row.setAttribute("aria-hidden", "true");
+
+      const bubble = document.createElement("div");
+      bubble.className = "msg msg-skeleton";
+      bubble.innerHTML = `
+        <div class="skeleton-line skeleton-line-title"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-line skeleton-line-short"></div>
+      `;
+      row.appendChild(bubble);
+      box.appendChild(row);
+    }
+  }
+
+  function renderMessagesError(message, onRetry){
+    const box = $("msgs");
+    box.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "state-block state-block-chat";
+    wrap.innerHTML = `
+      <div class="state-title">Не удалось загрузить сообщения</div>
+      <div class="state-sub">${escapeHtml(message || "Проверьте интернет и попробуйте снова.")}</div>
+    `;
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "btn state-btn";
+    retryBtn.textContent = "Повторить";
+    retryBtn.onclick = () => onRetry && onRetry();
+    wrap.appendChild(retryBtn);
+    box.appendChild(wrap);
+  }
+
   function renderChatList(){
     const list = $("chatlist");
     list.innerHTML = "";
     const visibleChats = getFilteredChats();
     if (!visibleChats.length){
-      const div = document.createElement("div");
-      div.className = "small";
-      div.textContent = chats.length ? "Ничего не найдено" : "Нет чатов. Создай ➕";
-      list.appendChild(div);
+      if (chats.length){
+        const div = document.createElement("div");
+        div.className = "small";
+        div.textContent = "Ничего не найдено";
+        list.appendChild(div);
+      } else {
+        const wrap = document.createElement("div");
+        wrap.className = "state-block";
+        wrap.innerHTML = `
+          <div class="state-title">Пока нет чатов</div>
+          <div class="state-sub">Создайте личный или групповой чат, чтобы начать общение.</div>
+        `;
+        const ctaBtn = document.createElement("button");
+        ctaBtn.type = "button";
+        ctaBtn.className = "btn state-btn";
+        ctaBtn.textContent = "Создать";
+        ctaBtn.onclick = () => openSheet("group");
+        wrap.appendChild(ctaBtn);
+        list.appendChild(wrap);
+      }
       return;
     }
 
@@ -1826,6 +1916,7 @@
 
   async function refreshChats(selectIfNeeded){
     if (!token){ openAuth("login"); return; }
+    renderChatListSkeleton();
     try{
       const data = await api("/api/chats");
       chats = (data.chats || []);
@@ -1857,6 +1948,7 @@
       const msg = String(e?.message || e || "");
       showNetworkError("Не удалось загрузить список чатов.");
       addSystem(`❌ Ошибка загрузки чатов: ${msg || "повторите попытку."}`);
+      renderChatListError(msg, () => refreshChats(selectIfNeeded));
       throw e;
     }
   }
@@ -2207,17 +2299,15 @@
     if (!token) return openAuth("login");
     if (!activeChatId) return;
 
-    const box = $("msgs");
-    box.innerHTML = "";
+    renderMessagesSkeleton();
     msgElById.clear();
     lastMsgId = loadLastMessageId();
     oldestLoadedMessageId = null;
     hasMoreHistory = true;
 
-    addSystem(`📥 Loading: ${activeChatTitle}…`);
-
     try{
       const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}&limit=50`);
+      const box = $("msgs");
       box.innerHTML = "";
       for (const m of (data.messages || [])) addMsg(m, { notifySystem: false });
       hasMoreHistory = Boolean(data.has_more);
@@ -2229,6 +2319,7 @@
       const msg = String(e?.message || e || "");
       showNetworkError("Не удалось загрузить сообщения чата.");
       addSystem(`❌ Ошибка загрузки сообщений: ${msg || "повторите попытку."}`);
+      renderMessagesError(msg, () => loadHistory());
     }
   }
 
