@@ -121,6 +121,117 @@
 
   function isMobile(){ return window.matchMedia("(max-width: 900px)").matches; }
 
+  const modalManager = (() => {
+    const registry = new Map();
+    const stack = [];
+
+    const focusableSelector = [
+      "button:not([disabled])",
+      "[href]",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])"
+    ].join(",");
+
+    function getFocusable(panel){
+      return Array.from(panel.querySelectorAll(focusableSelector)).filter((el)=> !el.hidden && el.offsetParent !== null);
+    }
+
+    function getTop(){
+      const topId = stack[stack.length - 1];
+      if (topId && registry.has(topId)) return registry.get(topId);
+      const opened = Array.from(registry.values()).filter((modal)=> modal.overlay.classList.contains("open"));
+      return opened.length ? opened[opened.length - 1] : null;
+    }
+
+    function register({ overlayId, panelSelector, close, ariaLabel }){
+      const overlay = $(overlayId);
+      if (!overlay) return;
+      const panel = overlay.querySelector(panelSelector);
+      if (!panel) return;
+
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      if (ariaLabel) panel.setAttribute("aria-label", ariaLabel);
+
+      const modal = {
+        id: overlayId,
+        overlay,
+        panel,
+        close,
+        lastTrigger: null
+      };
+
+      overlay.addEventListener("click", (e)=>{
+        if (e.target === overlay) close();
+      });
+
+      registry.set(overlayId, modal);
+    }
+
+    function open(overlayId){
+      const modal = registry.get(overlayId);
+      if (!modal) return;
+      modal.lastTrigger = document.activeElement;
+      modal.overlay.classList.add("open");
+      modal.overlay.setAttribute("aria-hidden", "false");
+      const idx = stack.indexOf(overlayId);
+      if (idx !== -1) stack.splice(idx, 1);
+      stack.push(overlayId);
+      const focusable = getFocusable(modal.panel);
+      const target = focusable[0] || modal.panel;
+      if (target === modal.panel && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      setTimeout(()=> target.focus(), 0);
+    }
+
+    function close(overlayId, { restoreFocus=true } = {}){
+      const modal = registry.get(overlayId);
+      if (!modal) return;
+      modal.overlay.classList.remove("open");
+      modal.overlay.setAttribute("aria-hidden", "true");
+      const idx = stack.indexOf(overlayId);
+      if (idx !== -1) stack.splice(idx, 1);
+      if (restoreFocus && modal.lastTrigger && typeof modal.lastTrigger.focus === "function" && document.contains(modal.lastTrigger)){
+        modal.lastTrigger.focus();
+      }
+    }
+
+    function closeTop(){
+      const top = getTop();
+      if (!top || typeof top.close !== "function") return false;
+      top.close();
+      return true;
+    }
+
+    document.addEventListener("keydown", (e)=>{
+      const top = getTop();
+      if (!top) return;
+      if (e.key === "Escape"){
+        e.preventDefault();
+        e.stopPropagation();
+        top.close();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = getFocusable(top.panel);
+      if (!focusable.length) return;
+      e.preventDefault();
+      const current = document.activeElement;
+      const idx = focusable.indexOf(current);
+      if (idx === -1){
+        (e.shiftKey ? focusable[focusable.length - 1] : focusable[0]).focus();
+        return;
+      }
+      const next = e.shiftKey
+        ? (idx === 0 ? focusable[focusable.length - 1] : focusable[idx - 1])
+        : (idx === focusable.length - 1 ? focusable[0] : focusable[idx + 1]);
+      next.focus();
+    });
+
+    return { register, open, close, closeTop };
+  })();
+
   // --- sound notify ---
   let audioCtx = null;
   function beep(){
@@ -313,13 +424,11 @@
       holder.appendChild(img);
     }
     $("mediaViewerTitle").textContent = title || "Медиа";
-    $("mediaViewerOverlay").classList.add("open");
-    $("mediaViewerOverlay").setAttribute("aria-hidden", "false");
+    modalManager.open("mediaViewerOverlay");
   }
 
   function closeMediaViewer(){
-    $("mediaViewerOverlay").classList.remove("open");
-    $("mediaViewerOverlay").setAttribute("aria-hidden", "true");
+    modalManager.close("mediaViewerOverlay");
     $("mediaViewerContent").innerHTML = "";
   }
 
@@ -451,8 +560,7 @@
         callUi.localVideo.classList.add("is-hidden");
         callUi.localVideo.srcObject = null;
       }
-      callUi.overlay.classList.add("open");
-      callUi.overlay.setAttribute("aria-hidden", "false");
+      modalManager.open("callOverlay");
       setStatus(isVideo ? "🎥 Видеозвонок" : "📞 Голосовой звонок");
       updateCallUi();
 
@@ -511,8 +619,7 @@
           callUi.localVideo.classList.add("is-hidden");
           callUi.localVideo.srcObject = null;
         }
-        callUi.overlay.classList.add("open");
-        callUi.overlay.setAttribute("aria-hidden", "false");
+        modalManager.open("callOverlay");
         updateCallUi();
         startCallTicker();
         wsSendCall("call_answer", { chat_id: chatId, call_id: callId, mode, started_at: startedAt });
@@ -563,8 +670,7 @@
     try{ callState.stream?.getTracks().forEach((track)=> track.stop()); }catch(_){ }
     callUi.localVideo.srcObject = null;
     callUi.localVideo.classList.add("is-hidden");
-    callUi.overlay.classList.remove("open");
-    callUi.overlay.setAttribute("aria-hidden", "true");
+    modalManager.close("callOverlay");
 
     if (emit && ended.callId && ended.chatId){
       const duration = ended.status === "connected" ? Math.max(0, Math.floor(Date.now()/1000) - Number(ended.connectedAt || Math.floor(Date.now()/1000))) : 0;
@@ -909,15 +1015,13 @@
   }
   function openAuth(mode="login"){
     setAuthTab(mode);
-    $("authOverlay").classList.add("open");
-    $("authOverlay").setAttribute("aria-hidden","false");
+    modalManager.open("authOverlay");
     $("authUsername").value = me || $("authUsername").value || "";
     $("authPassword").value = "";
     setTimeout(()=> $("authUsername").focus(), 50);
   }
   function closeAuth(){
-    $("authOverlay").classList.remove("open");
-    $("authOverlay").setAttribute("aria-hidden","true");
+    modalManager.close("authOverlay");
   }
   async function authSubmit(){
     if (authBusy) return;
@@ -1261,8 +1365,7 @@
   function openSheet(mode){
     if (!token) return openAuth("login");
     sheet.mode = mode;
-    sheet.overlay.classList.add("open");
-    sheet.overlay.setAttribute("aria-hidden","false");
+    modalManager.open("sheetOverlay");
     if (mode === "group"){
       sheet.title.textContent = "Новый групповой чат";
       sheet.input.placeholder = "Название (например: work)";
@@ -1278,8 +1381,7 @@
     setTimeout(()=> sheet.input.focus(), 50);
   }
   function closeSheet(){
-    sheet.overlay.classList.remove("open");
-    sheet.overlay.setAttribute("aria-hidden","true");
+    modalManager.close("sheetOverlay");
     sheet.mode = null;
   }
 
@@ -1310,25 +1412,21 @@
     $("profileHint").textContent = `@${me}`;
     $("profileDisplayName").value = displayName || "";
     $("profileBio").value = profileBio || "";
-    profile.overlay.classList.add("open");
-    profile.overlay.setAttribute("aria-hidden","false");
+    modalManager.open("profileOverlay");
     loadStories().catch(()=>{});
     loadAvatarHistory().catch(()=>{});
   }
   function closeProfile(){
-    profile.overlay.classList.remove("open");
-    profile.overlay.setAttribute("aria-hidden","true");
+    modalManager.close("profileOverlay");
   }
 
   function openHelp(){
-    help.overlay.classList.add("open");
-    help.overlay.setAttribute("aria-hidden", "false");
+    modalManager.open("helpOverlay");
     localStorage.setItem(HELP_ONBOARDING_KEY, "1");
   }
 
   function closeHelp(){
-    help.overlay.classList.remove("open");
-    help.overlay.setAttribute("aria-hidden", "true");
+    modalManager.close("helpOverlay");
   }
 
   function maybeShowHelpOnboarding(){
@@ -1337,8 +1435,7 @@
   }
 
   function closeUserProfile(){
-    userProfile.overlay.classList.remove("open");
-    userProfile.overlay.setAttribute("aria-hidden","true");
+    modalManager.close("userProfileOverlay");
     userProfile.activeUsername = "";
   }
 
@@ -1449,8 +1546,7 @@
         }
       }
 
-      userProfile.overlay.classList.add("open");
-      userProfile.overlay.setAttribute("aria-hidden","false");
+      modalManager.open("userProfileOverlay");
     }catch(e){
       addSystem("❌ " + (e.message || e));
     }
@@ -1464,8 +1560,7 @@
   let preview = { blob:null, file:null, url:"" };
 
   function openVoicePreview(){
-    $("voicePreviewOverlay").classList.add("open");
-    $("voicePreviewOverlay").setAttribute("aria-hidden","false");
+    modalManager.open("voicePreviewOverlay");
     const holder = $("voicePreviewPlayer");
     holder.innerHTML = "";
     const player = createVoicePlayer(preview.url);
@@ -1473,8 +1568,7 @@
     $("voicePreviewHint").textContent = "Прослушай и отправь / отмена.";
   }
   function closeVoicePreview(){
-    $("voicePreviewOverlay").classList.remove("open");
-    $("voicePreviewOverlay").setAttribute("aria-hidden","true");
+    modalManager.close("voicePreviewOverlay");
     $("voicePreviewPlayer").innerHTML = "";
   }
   function clearPreview(){
@@ -2499,14 +2593,12 @@
 
   function openContacts(){
     if (!token) return openAuth('login');
-    $("contactsOverlay").classList.add('open');
-    $("contactsOverlay").setAttribute('aria-hidden','false');
+    modalManager.open("contactsOverlay");
     loadContacts().catch((e)=>addSystem('❌ '+(e.message||e)));
   }
 
   function closeContacts(){
-    $("contactsOverlay").classList.remove('open');
-    $("contactsOverlay").setAttribute('aria-hidden','true');
+    modalManager.close("contactsOverlay");
   }
 
   async function addContact(){
@@ -2616,16 +2708,14 @@
 
   async function openChatInfo(){
     if (!activeChatId) return;
-    $("chatInfoOverlay").classList.add('open');
-    $("chatInfoOverlay").setAttribute('aria-hidden','false');
+    modalManager.open("chatInfoOverlay");
     $("chatInfoTitle").textContent = activeChatTitle;
     setChatInfoTab("info");
     await loadChatOverview('');
   }
 
   function closeChatInfo(){
-    $("chatInfoOverlay").classList.remove('open');
-    $("chatInfoOverlay").setAttribute('aria-hidden','true');
+    modalManager.close("chatInfoOverlay");
   }
 
   async function loadChatOverview(keyword){
@@ -2941,6 +3031,16 @@ ${listText}
   // =========================
   // Wiring
   // =========================
+  modalManager.register({ overlayId: "authOverlay", panelSelector: ".modal", close: closeAuth, ariaLabel: "Авторизация" });
+  modalManager.register({ overlayId: "sheetOverlay", panelSelector: ".sheet", close: closeSheet, ariaLabel: "Создание чата" });
+  modalManager.register({ overlayId: "profileOverlay", panelSelector: ".sheet", close: closeProfile, ariaLabel: "Профиль" });
+  modalManager.register({ overlayId: "contactsOverlay", panelSelector: ".sheet", close: closeContacts, ariaLabel: "Контакты" });
+  modalManager.register({ overlayId: "chatInfoOverlay", panelSelector: ".sheet", close: closeChatInfo, ariaLabel: "Информация о чате" });
+  modalManager.register({ overlayId: "helpOverlay", panelSelector: ".sheet", close: closeHelp, ariaLabel: "Справка" });
+  modalManager.register({ overlayId: "userProfileOverlay", panelSelector: ".sheet", close: closeUserProfile, ariaLabel: "Профиль пользователя" });
+  modalManager.register({ overlayId: "mediaViewerOverlay", panelSelector: ".modal", close: closeMediaViewer, ariaLabel: "Просмотр медиа" });
+  modalManager.register({ overlayId: "voicePreviewOverlay", panelSelector: ".modal", close: () => { closeVoicePreview(); clearPreview(); }, ariaLabel: "Предпросмотр голосового сообщения" });
+  modalManager.register({ overlayId: "callOverlay", panelSelector: ".modal", close: () => endCall({ silent:true }), ariaLabel: "Звонок" });
   $("btnToggleSidebar").onclick = () => toggleSidebar();
   $("drawerBackdrop").onclick = () => closeSidebar();
   window.addEventListener("resize", ()=> {
@@ -2992,7 +3092,6 @@ ${listText}
   $("btnToggleCallCamera").onclick = () => toggleCallCamera();
   $("btnEndCall").onclick = () => endCall();
   $("btnCloseCall").onclick = () => endCall({ silent:true });
-  $("callOverlay").addEventListener("click", (e)=>{ if (e.target === $("callOverlay")) endCall({ silent:true }); });
 
   $("tabLogin").onclick = () => setAuthTab("login");
   $("tabRegister").onclick = () => setAuthTab("register");
@@ -3004,7 +3103,6 @@ ${listText}
   $("btnSidebarMore").onclick = () => toggleSidebarMoreMenu();
   $("btnCloseSheet").onclick = () => closeSheet();
   $("btnSheetCancel").onclick = () => closeSheet();
-  $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
   $("btnSheetOk").onclick = async () => {
     try{
       const value = sheet.input.value;
@@ -3029,8 +3127,6 @@ ${listText}
   document.querySelectorAll(".chat-info-tab").forEach((btn)=>{
     btn.onclick = () => setChatInfoTab(btn.dataset.tab || "media");
   });
-  $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
-  $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
 
   document.addEventListener("click", (e) => {
     const menu = $("chatActionsMenu");
@@ -3039,9 +3135,6 @@ ${listText}
     if (menu.contains(e.target) || toggle.contains(e.target)) return;
     closeChatActionsMenu();
   });
-  $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
-  $("helpOverlay").addEventListener("click", (e)=>{ if (e.target === $("helpOverlay")) closeHelp(); });
-  $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
   document.addEventListener("click", (e)=>{
     const menu = $("profileMenu");
     const trigger = $("whoami");
@@ -3054,7 +3147,6 @@ ${listText}
   $("btnUploadStory").onclick = () => uploadStory();
 
   $("btnCloseMediaViewer").onclick = () => closeMediaViewer();
-  $("mediaViewerOverlay").addEventListener("click", (e)=>{ if (e.target === $("mediaViewerOverlay")) closeMediaViewer(); });
 
   $("btnCloseVoicePreview").onclick = () => { closeVoicePreview(); clearPreview(); };
   $("btnCancelVoiceNow").onclick = () => { closeVoicePreview(); clearPreview(); };
@@ -3110,12 +3202,10 @@ ${listText}
 
   document.addEventListener("keydown", (e)=>{
     if (e.key === "Escape"){
+      if (modalManager.closeTop()) return;
       closeCtx();
       closeSidebar();
       closeSidebarMoreMenu();
-      closeSheet();
-      closeProfile();
-      closeHelp();
       closeProfileMenu();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
