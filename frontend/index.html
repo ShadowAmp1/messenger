@@ -79,16 +79,23 @@
         </aside>
 
         <div class="chat">
-          <div class="chat-head">
-            <button class="chat-head-info" id="btnChatInfo" type="button">
-              <div>
-                <div id="chatHeadTitle">Выберите чат</div>
-                <div class="small" id="chatHeadSub">Нажмите для поиска и медиа</div>
+          <div class="chat-head" aria-label="Верхняя панель чата">
+            <div class="chat-head-info" id="btnChatInfo" role="button" tabindex="0" aria-label="Открыть информацию о чате">
+              <div id="chatHeadTitle">Выберите чат</div>
+              <div class="small chat-head-status">
+                <span id="chatHeadSub">Статус чата</span>
+                <span class="typing" id="typing"></span>
+                <span class="is-hidden" id="status">—</span>
               </div>
-            </button>
+              <span class="is-hidden" id="net">не в сети</span>
+            </div>
             <div class="chat-head-actions" aria-label="Действия чата">
-              <button class="iconbtn" id="btnStartVoiceCall" type="button" title="Голосовой звонок" aria-label="Голосовой звонок">📞</button>
-              <button class="iconbtn" id="btnStartVideoCall" type="button" title="Видеозвонок" aria-label="Видеозвонок">🎥</button>
+              <button class="iconbtn" id="btnChatActions" type="button" title="Действия чата" aria-label="Действия чата" aria-haspopup="true" aria-expanded="false" aria-controls="chatActionsMenu">⋯</button>
+              <div class="chat-actions-menu" id="chatActionsMenu" aria-hidden="true">
+                <button class="chat-actions-item" id="btnChatActionInfo" type="button">ℹ️ Инфо</button>
+                <button class="chat-actions-item" id="btnChatActionMedia" type="button">🖼️ Медиа</button>
+                <button class="chat-actions-item" id="btnChatActionMembers" type="button">👥 Участники</button>
+              </div>
             </div>
           </div>
           <div id="storiesBar" class="stories-bar"></div>
@@ -103,14 +110,6 @@
             <div id="replyBox" class="small reply-box is-hidden"></div>
             <input id="text" placeholder="Напиши сообщение." />
             <button class="iconbtn" id="btnSend" type="button" aria-label="Отправить сообщение">➤</button>
-          </div>
-
-          <div class="statusbar">
-            <div class="small">
-              <span id="status">—</span>
-              <span class="typing" id="typing"></span>
-            </div>
-            <div class="pill" id="net">не в сети</div>
           </div>
         </div>
       </div>
@@ -220,6 +219,7 @@
           <button class="chat-info-tab" id="chatInfoTabFiles" data-tab="files" type="button" role="tab" aria-selected="false">Файлы</button>
           <button class="chat-info-tab" id="chatInfoTabVoice" data-tab="voice" type="button" role="tab" aria-selected="false">Голосовые</button>
           <button class="chat-info-tab" id="chatInfoTabLinks" data-tab="links" type="button" role="tab" aria-selected="false">Ссылки</button>
+          <button class="chat-info-tab" id="chatInfoTabMembers" data-tab="members" type="button" role="tab" aria-selected="false">Участники</button>
         </div>
 
         <div class="chat-info-list" id="chatInfoTabList"></div>
