@@ -556,6 +556,19 @@
       content-visibility: auto;
       contain-intrinsic-size: 150px;
     }
+    .msg-row.msg-row-enter{
+      animation: msgEnter .15s ease-out both;
+    }
+    @keyframes msgEnter{
+      from{
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to{
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
     .msg-row.me{ justify-content:flex-end; }
     .msg-avatar{
       width: 34px;
@@ -850,6 +863,31 @@
     .typing{
       margin-left: 10px;
       opacity: .85;
+      display:none;
+      align-items:center;
+      gap:6px;
+    }
+    .typing.active{
+      display:inline-flex;
+    }
+    .typing-dots{
+      display:inline-flex;
+      gap:3px;
+      align-items:flex-end;
+    }
+    .typing-dots span{
+      width:5px;
+      height:5px;
+      border-radius:50%;
+      background: currentColor;
+      opacity:.35;
+      animation: typingDot 1s ease-in-out infinite;
+    }
+    .typing-dots span:nth-child(2){ animation-delay: .15s; }
+    .typing-dots span:nth-child(3){ animation-delay: .3s; }
+    @keyframes typingDot{
+      0%, 60%, 100%{ transform: translateY(0); opacity:.35; }
+      30%{ transform: translateY(-2px); opacity:.95; }
     }
 
 
@@ -988,6 +1026,9 @@
       backdrop-filter: blur(6px);
     }
     .overlay.open{ display:flex; }
+    .overlay.open{
+      animation: overlayFadeIn .18s ease both;
+    }
     .modal{
       width: min(440px, 100%);
       background: var(--card);
@@ -995,6 +1036,9 @@
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow);
       overflow:hidden;
+    }
+    .overlay.open .modal{
+      animation: modalEnter .18s ease both;
     }
     .media-viewer{ width:min(900px, 100%); }
     #mediaViewerContent{ display:flex; align-items:center; justify-content:center; min-height:240px; }
@@ -1074,6 +1118,9 @@
       backdrop-filter: blur(4px);
     }
     .sheet-overlay.open{ display:flex; }
+    .sheet-overlay.open{
+      animation: overlayFadeIn .18s ease both;
+    }
     .sheet{
       width: min(560px, 100%);
       background: var(--card);
@@ -1081,6 +1128,9 @@
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow);
       overflow:hidden;
+    }
+    .sheet-overlay.open .sheet{
+      animation: sheetEnter .18s ease both;
     }
     .call-modal{ width:min(520px, 100%); }
     .call-local-video{
@@ -1142,6 +1192,19 @@
     .chat-info-drawer-overlay.open .chat-info-drawer{
       transform: translateX(0);
       opacity: 1;
+    }
+
+    @keyframes overlayFadeIn{
+      from{ opacity: 0; }
+      to{ opacity: 1; }
+    }
+    @keyframes modalEnter{
+      from{ opacity: 0; transform: translateY(10px) scale(.985); }
+      to{ opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes sheetEnter{
+      from{ opacity: 0; transform: translateY(12px); }
+      to{ opacity: 1; transform: translateY(0); }
     }
     .chat-info-drawer-body{
       overflow: auto;
