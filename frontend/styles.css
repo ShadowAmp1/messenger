@@ -636,9 +636,30 @@
       transform: translateY(0);
       transition: opacity .28s ease, transform .28s ease;
     }
+    .system-toast.error{
+      border-color: rgba(255,91,91,.45);
+      background: var(--danger-bg);
+      color: var(--danger-text);
+    }
     .system-toast.hide{
       opacity: 0;
       transform: translateY(6px);
+    }
+    .offline-banner{
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 95;
+      max-width: min(620px, calc(100vw - 24px));
+      border: 1px solid rgba(255,91,91,.45);
+      background: var(--danger-bg);
+      color: var(--danger-text);
+      border-radius: 12px;
+      padding: 8px 12px;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+      text-align: center;
     }
     .drawer-backdrop{
       display:none;

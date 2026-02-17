@@ -180,15 +180,28 @@
   function setStatus(s){ $("status").textContent = s || "—"; }
   function setNet(s){ $("net").textContent = s || "не в сети"; }
 
+  let offlineMode = false;
+  function setOfflineMode(isOffline){
+    offlineMode = !!isOffline;
+    const banner = $("offlineBanner");
+    if (banner) toggleHidden(banner, !offlineMode);
+    if (offlineMode) setNet("offline");
+    else if (!ws || ws.readyState !== 1) setNet("connecting…");
+  }
+
   function addSystem(text){
     showSystemToast(text);
   }
 
-  function showSystemToast(text, ttlMs = 0){
+  function showNetworkError(message){
+    showSystemToast(`⚠️ ${String(message || "Сетевая ошибка")}`, 7000, "error");
+  }
+
+  function showSystemToast(text, ttlMs = 0, variant = "default"){
     const host = $("systemToasts");
     if (!host) return;
     const toast = document.createElement("div");
-    toast.className = "system-toast";
+    toast.className = "system-toast" + (variant === "error" ? " error" : "");
     toast.textContent = String(text || "").trim() || "System";
     host.appendChild(toast);
 
@@ -545,38 +558,67 @@
     return badge;
   }
 
-  async function tryRefresh(){
-    if (!refreshToken) return false;
-    const res = await fetch("/api/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken })
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    token = data.token || "";
-    refreshToken = data.refresh_token || "";
-    localStorage.setItem("token", token);
-    localStorage.setItem("refresh_token", refreshToken);
-    return !!token;
-  }
+  async function request(path, { method = "GET", body = null, headers = {}, auth = true, retry = true } = {}){
+    if (!navigator.onLine){
+      setOfflineMode(true);
+      throw new Error("Нет подключения к интернету.");
+    }
 
-  async function api(path, method="GET", body=null, retry=true){
-    const opts = { method, headers: {} };
-    if (token) opts.headers["Authorization"] = `Bearer ${token}`;
-    if (body){
-      opts.headers["Content-Type"] = "application/json";
+    const reqHeaders = { ...(headers || {}) };
+    const opts = { method, headers: reqHeaders };
+    if (auth && token) reqHeaders["Authorization"] = `Bearer ${token}`;
+
+    if (body instanceof FormData){
+      opts.body = body;
+    } else if (body !== null && body !== undefined){
+      reqHeaders["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(path, opts);
+
+    let res;
+    try{
+      res = await fetch(path, opts);
+      setOfflineMode(false);
+    }catch(_){
+      setOfflineMode(true);
+      throw new Error("Сервер недоступен. Проверьте интернет и повторите попытку.");
+    }
+
     const raw = await res.text();
     let data = {};
-    try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
-    if (res.status === 401 && retry && await tryRefresh()){
-      return api(path, method, body, false);
+    try { data = raw ? JSON.parse(raw) : {}; } catch { data = { detail: raw }; }
+
+    if (res.status === 401 && retry && auth && await tryRefresh()){
+      return request(path, { method, body, headers, auth, retry: false });
     }
-    if (!res.ok) throw new Error((data && data.detail) ? String(data.detail) : `${res.status} ${res.statusText}`);
+
+    if (!res.ok){
+      throw new Error((data && data.detail) ? String(data.detail) : `${res.status} ${res.statusText}`);
+    }
     return data;
+  }
+
+  async function tryRefresh(){
+    if (!refreshToken) return false;
+    try{
+      const data = await request("/api/refresh", {
+        method: "POST",
+        body: { refresh_token: refreshToken },
+        auth: false,
+        retry: false
+      });
+      token = data.token || "";
+      refreshToken = data.refresh_token || "";
+      localStorage.setItem("token", token);
+      localStorage.setItem("refresh_token", refreshToken);
+      return !!token;
+    }catch(_){
+      return false;
+    }
+  }
+
+  async function api(path, method="GET", body=null){
+    return request(path, { method, body, auth: true });
   }
 
   // =========================
@@ -822,7 +864,11 @@
       await refreshChats(true);
       loadStories().catch(()=>{});
     }catch(e){
-      showAuthError(String(e.message || e));
+      const msg = String(e?.message || e || "");
+      if (offlineMode || /интернет|недоступен|Failed to fetch/i.test(msg)){
+        showNetworkError("Не удалось выполнить вход. Проверьте интернет и повторите попытку.");
+      }
+      showAuthError(`Не удалось войти: ${msg || "проверьте логин и пароль."}`);
     }finally{
       authBusy = false;
       $("btnAuthSubmit").disabled = false;
@@ -924,9 +970,12 @@
     setNet("connecting…");
     ws = new WebSocket(url);
 
-    ws.onopen = () => setNet("online");
-    ws.onclose = () => setNet("не в сети");
-    ws.onerror = () => setNet("не в сети");
+    ws.onopen = () => {
+      setOfflineMode(false);
+      setNet("online");
+    };
+    ws.onclose = () => setNet(offlineMode ? "offline" : "не в сети");
+    ws.onerror = () => setNet(offlineMode ? "offline" : "не в сети");
 
     ws.onmessage = (ev) => {
       let data = null;
@@ -1376,11 +1425,7 @@
     fd.append("text", caption);
     fd.append("file", file);
     setStatus("⏫ Upload…");
-    const res = await fetch("/api/upload", { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: fd });
-    const raw = await res.text();
-    let data = {};
-    try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
-    if (!res.ok){ setStatus(""); throw new Error(data.detail || raw); }
+    await request("/api/upload", { method: "POST", body: fd, auth: true });
     $("text").value = "";
     $("file").value = "";
     setStatus(`online • ${activeChatTitle}`);
@@ -1410,15 +1455,7 @@
       $("profileHint").textContent = "Uploading…";
       const fd = new FormData();
       fd.append("file", f);
-      const res = await fetch("/api/avatar", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: fd
-      });
-      const raw = await res.text();
-      let data = {};
-      try { data = JSON.parse(raw); } catch { data = { detail: raw }; }
-      if (!res.ok) throw new Error(data.detail || raw);
+      const data = await request("/api/avatar", { method: "POST", body: fd, auth: true });
       avatarUrl = data.avatar_url || "";
       localStorage.setItem("avatar_url", avatarUrl || "");
       setWhoami();
@@ -1559,31 +1596,38 @@
 
   async function refreshChats(selectIfNeeded){
     if (!token){ openAuth("login"); return; }
-    const data = await api("/api/chats");
-    chats = (data.chats || []);
-    renderChatList();
-
-    if (!chats.length){
-      activeChatId = "";
-      activeChatTitle = "";
-      activeChatType = "";
-      activeChatCreatedBy = "";
-      localStorage.removeItem("activeChatId");
-      $("msgs").innerHTML = "";
-      addSystem("ℹ️ У тебя пока нет чатов. Создай групповой или личный чат.");
-      setStatus("");
-      updateChatActionState();
-      return;
-    }
-
-    if (selectIfNeeded){
-      if (!activeChatId || !chats.find(c => c.id === activeChatId)){
-        activeChatId = chats[0].id;
-        localStorage.setItem("activeChatId", activeChatId);
-      }
-      selectChat(activeChatId);
-    } else {
+    try{
+      const data = await api("/api/chats");
+      chats = (data.chats || []);
       renderChatList();
+
+      if (!chats.length){
+        activeChatId = "";
+        activeChatTitle = "";
+        activeChatType = "";
+        activeChatCreatedBy = "";
+        localStorage.removeItem("activeChatId");
+        $("msgs").innerHTML = "";
+        addSystem("ℹ️ У тебя пока нет чатов. Создай групповой или личный чат.");
+        setStatus("");
+        updateChatActionState();
+        return;
+      }
+
+      if (selectIfNeeded){
+        if (!activeChatId || !chats.find(c => c.id === activeChatId)){
+          activeChatId = chats[0].id;
+          localStorage.setItem("activeChatId", activeChatId);
+        }
+        selectChat(activeChatId);
+      } else {
+        renderChatList();
+      }
+    }catch(e){
+      const msg = String(e?.message || e || "");
+      showNetworkError("Не удалось загрузить список чатов.");
+      addSystem(`❌ Ошибка загрузки чатов: ${msg || "повторите попытку."}`);
+      throw e;
     }
   }
 
@@ -1914,7 +1958,9 @@
       maybeMarkRead();
       refreshChats(false).catch(()=>{});
     } catch (e) {
-      addSystem("❌ " + e.message);
+      const msg = String(e?.message || e || "");
+      showNetworkError("Не удалось загрузить сообщения чата.");
+      addSystem(`❌ Ошибка загрузки сообщений: ${msg || "повторите попытку."}`);
     }
   }
 
@@ -1929,7 +1975,9 @@
       await api("/api/messages", "POST", { chat_id: activeChatId, text, reply_to_id: replyTo ? replyTo.id : null });
       clearReply();
     }catch(e){
-      addSystem("❌ " + e.message);
+      const msg = String(e?.message || e || "");
+      showNetworkError("Не удалось отправить сообщение.");
+      addSystem(`❌ Сообщение не отправлено: ${msg || "повторите попытку."}`);
     }
   }
 
@@ -2062,10 +2110,7 @@
     fd.append("file", f);
     fd.append("caption", $("storyCaption").value.trim());
     try{
-      const res = await fetch("/api/stories", { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: fd });
-      const raw = await res.text();
-      const data = JSON.parse(raw || "{}");
-      if (!res.ok) throw new Error(data.detail || raw);
+      await request("/api/stories", { method: "POST", body: fd, auth: true });
       $("storyFile").value = "";
       $("storyCaption").value = "";
       $("profileHint").textContent = "✅ История опубликована";
@@ -2648,6 +2693,13 @@ ${listText}
     if (!isMobile()) closeSidebar({ restoreFocus:false });
   });
   window.addEventListener("orientationchange", syncSidebarTopOffset);
+  window.addEventListener("online", () => {
+    setOfflineMode(false);
+    if (token && (!ws || ws.readyState !== 1)) connectWS_GLOBAL();
+  });
+  window.addEventListener("offline", () => {
+    setOfflineMode(true);
+  });
 
   $("btnThemeToggle").onclick = () => toggleTheme();
   $("btnOpenAuth").onclick = () => openAuth("login");
@@ -2788,6 +2840,7 @@ ${listText}
   updateChatActionState();
   setWhoami();
   requestNotificationPermissionIfNeeded();
+  setOfflineMode(!navigator.onLine);
 
   if (token){
     addSystem("🔁 Проверяем сессию…");
