@@ -547,11 +547,11 @@
       max-width: min(70%, 720px);
       border: 1px solid var(--border);
       background: var(--incoming);
-      border-radius: 14px;
-      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      border-radius: 18px;
+      padding: 12px 14px;
       display:flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
       position: relative;
       box-shadow: var(--bubble-shadow);
     }
@@ -588,7 +588,7 @@
     .meta{
       display:flex;
       align-items:baseline;
-      justify-content: space-between;
+      justify-content: flex-start;
       gap: 10px;
       font-size: var(--font-size-secondary);
       color: var(--muted);
@@ -597,8 +597,23 @@
     .meta b{ color: var(--text-strong); opacity: .95; }
     .edited{
       font-size: 11px;
-      opacity: .75;
-      margin-left: 8px;
+      color: var(--muted);
+      opacity: .8;
+      margin-left: 6px;
+    }
+
+    .msg-footer{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:6px;
+      margin-top: 2px;
+    }
+    .meta-time{
+      font-size: 11px;
+      color: var(--muted);
+      opacity: .82;
+      white-space: nowrap;
     }
 
     .sender-link{
@@ -648,12 +663,18 @@
       background:var(--surface);
     }
     .deleted{
-      opacity: .7;
-      font-style: italic;
+      font-size: 13px;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent);
+      border-radius: 12px;
+      padding: 8px 10px;
     }
 
     .reply-preview{border-left:3px solid var(--primary);padding-left:8px;font-size:12px;opacity:.9;margin-bottom:6px;}
-    .reactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+    .msg-stack{display:flex;flex-direction:column;align-items:flex-start;max-width:min(70%, 720px);}
+    .msg-stack.me{align-items:flex-end;}
+    .reactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;padding:0 4px;}
     .react{font-size:12px;border:1px solid var(--border);padding:2px 7px;border-radius:999px;background:var(--surface);cursor:pointer;}
     .react.mine{border-color:var(--primary);background:color-mix(in srgb, var(--primary) 22%, var(--surface));}
     .emoji-picker{position:fixed;z-index:1000;display:flex;gap:4px;padding:6px;border:1px solid var(--border);background:var(--card);border-radius:10px;box-shadow:var(--shadow)}
