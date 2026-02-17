@@ -47,11 +47,26 @@ Frontend уже лежит в репозитории и раздаётся backe
 
 ## Быстрая проверка
 ```bash
+curl http://localhost:8000/health
 curl http://localhost:8000/api/health
-```
-
-Ожидается JSON вида `{"ok": true, "ts": ...}`.
 curl http://localhost:8000/
 ```
 
+Ожидается JSON вида:
+- `/health` → `{"ok": true, "version": "...", "commit": "..."}`
+- `/api/health` → `{"ok": true, "ts": ..., "version": "...", "commit": "..."}`
+
 Ожидается ответ со страницей приложения или JSON-подсказкой, если фронтенд недоступен.
+
+## Логи backend-запросов
+Добавлены структурные логи HTTP-запросов (одна JSON-строка на запрос) с полями:
+- `method`
+- `path`
+- `status`
+- `latency_ms`
+- `user_id` (если токен валиден, иначе `null`)
+
+Пример (формат может отличаться в зависимости от логгера):
+```json
+{"method": "GET", "path": "/api/chats", "status": 200, "latency_ms": 12.41, "user_id": "alice"}
+```
