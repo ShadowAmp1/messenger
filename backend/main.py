@@ -406,6 +406,11 @@ def is_member(conn, chat_id: str, username: str) -> bool:
         return cur.fetchone() is not None
 
 
+def require_member(conn, chat_id: str, username: str) -> None:
+    if not is_member(conn, chat_id, username):
+        raise HTTPException(status_code=403, detail="Not a member")
+
+
 def favorites_chat_id(username: str) -> str:
     return f"fav:{username}"
 
@@ -1512,6 +1517,7 @@ async def invite_to_group(
             raise HTTPException(status_code=404, detail="Chat not found")
         if chat["type"] != "group":
             raise HTTPException(status_code=400, detail="Invite only in group chats")
+        require_member(conn, chat_id, username)
         if not can_moderate(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Only owner/admin can invite")
 
@@ -1559,6 +1565,7 @@ async def update_member_role(
         chat = get_chat(conn, chat_id)
         if not chat or chat["type"] != "group":
             raise HTTPException(status_code=404, detail="Group chat not found")
+        require_member(conn, chat_id, username)
         if get_member_role(conn, chat_id, username) != "owner":
             raise HTTPException(status_code=403, detail="Only owner can change roles")
         if target == chat["created_by"]:
@@ -1588,6 +1595,7 @@ async def remove_member(
         chat = get_chat(conn, chat_id)
         if not chat or chat["type"] != "group":
             raise HTTPException(status_code=404, detail="Group chat not found")
+        require_member(conn, chat_id, username)
         if not can_moderate(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Only owner/admin can remove members")
         if target == chat["created_by"]:
@@ -1611,8 +1619,7 @@ def mute_chat(
 ):
     minutes = max(0, min(int(data.muted_minutes), 60 * 24 * 30))
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
         muted_until = (now_ts() + minutes * 60) if minutes else None
         with conn.cursor() as cur:
             cur.execute(
@@ -1631,8 +1638,7 @@ def mute_chat(
 @app.get("/api/chats/{chat_id}/pins")
 def list_pins(chat_id: str, username: str = Depends(get_current_username)):
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1657,6 +1663,7 @@ async def pin_message(
 ):
     message_id = int(data.message_id)
     with db() as conn:
+        require_member(conn, chat_id, username)
         chat = get_chat(conn, chat_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
@@ -1678,6 +1685,7 @@ async def pin_message(
 @app.delete("/api/chats/{chat_id}/pins/{message_id}")
 async def unpin_message(chat_id: str, message_id: int, username: str = Depends(get_current_username)):
     with db() as conn:
+        require_member(conn, chat_id, username)
         if not can_moderate(conn, chat_id, username):
             raise HTTPException(status_code=403, detail="Only owner/admin can unpin")
         with conn.cursor() as cur:
@@ -1694,8 +1702,7 @@ async def delete_chat(chat_id: str, username: str = Depends(get_current_username
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
 
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
 
         with conn.cursor() as cur:
             if chat["type"] == "group":
@@ -1743,8 +1750,7 @@ def chat_overview(
 ):
     query = (q or "").strip()
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1977,8 +1983,7 @@ def list_messages(
         raise HTTPException(status_code=400, detail="chat_id required")
 
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
 
         with conn.cursor() as cur:
             cur.execute(
@@ -2047,8 +2052,7 @@ def get_message_status(
             chat_id = msg["chat_id"]
             sender = msg["sender"]
 
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member")
+            require_member(conn, chat_id, username)
 
             cur.execute(
                 """
@@ -2126,8 +2130,7 @@ async def create_text_message(
 
     with db() as conn:
         sender_avatar_url = None
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
 
         with conn.cursor() as cur:
             cur.execute("SELECT avatar_url FROM users WHERE username=%s", (username,))
@@ -2222,10 +2225,8 @@ async def forward_message(
                 raise HTTPException(status_code=404, detail="Message not found")
 
             source_chat_id = src["chat_id"]
-            if not is_member(conn, source_chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member of source chat")
-            if not is_member(conn, target_chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member of target chat")
+            require_member(conn, source_chat_id, username)
+            require_member(conn, target_chat_id, username)
             if src["deleted_for_all"]:
                 raise HTTPException(status_code=400, detail="Cannot forward deleted message")
 
@@ -2308,8 +2309,7 @@ async def edit_message(
                 raise HTTPException(status_code=404, detail="Message not found")
 
             chat_id = row["chat_id"]
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member")
+            require_member(conn, chat_id, username)
             if row["sender"] != username:
                 raise HTTPException(status_code=403, detail="Only sender can edit")
             if row["deleted_for_all"]:
@@ -2352,8 +2352,7 @@ async def delete_message(
                 raise HTTPException(status_code=404, detail="Message not found")
             chat_id = row["chat_id"]
 
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member")
+            require_member(conn, chat_id, username)
 
             if scope == "me":
                 cur.execute(
@@ -2402,8 +2401,7 @@ async def add_reaction(
             if not row:
                 raise HTTPException(status_code=404, detail="Message not found")
             chat_id = row["chat_id"]
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member")
+            require_member(conn, chat_id, username)
             cur.execute(
                 """
                 INSERT INTO message_reactions(message_id, username, emoji, created_at)
@@ -2432,8 +2430,7 @@ async def remove_reaction(
             if not row:
                 raise HTTPException(status_code=404, detail="Message not found")
             chat_id = row["chat_id"]
-            if not is_member(conn, chat_id, username):
-                raise HTTPException(status_code=403, detail="Not a member")
+            require_member(conn, chat_id, username)
             cur.execute("DELETE FROM message_reactions WHERE message_id=%s AND username=%s AND emoji=%s", (message_id, username, emoji))
         conn.commit()
 
@@ -2471,8 +2468,7 @@ async def upload_media(
         raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
 
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
 
     # upload to Cloudinary
     try:
@@ -2555,8 +2551,7 @@ async def mark_read(
         raise HTTPException(status_code=400, detail="chat_id + last_id required")
 
     with db() as conn:
-        if not is_member(conn, chat_id, username):
-            raise HTTPException(status_code=403, detail="Not a member")
+        require_member(conn, chat_id, username)
         with conn.cursor() as cur:
             cur.execute(
                 """
