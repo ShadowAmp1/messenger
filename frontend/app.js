@@ -89,6 +89,7 @@
 
   let chats = [];
   let activeChatFilter = "all";
+  let sidebarMoreMenuOpen = false;
   let activeChatId = localStorage.getItem("activeChatId") || "";
   let activeChatTitle = "";
   let activeChatType = "";
@@ -172,6 +173,30 @@
     }
   }
   function toggleSidebar(){ sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
+
+  function openSidebarMoreMenu(){
+    const menu = $("sidebarMoreMenu");
+    const trigger = $("btnSidebarMore");
+    if (!menu || !trigger) return;
+    menu.classList.add("open");
+    menu.setAttribute("aria-hidden", "false");
+    trigger.setAttribute("aria-expanded", "true");
+    sidebarMoreMenuOpen = true;
+  }
+
+  function closeSidebarMoreMenu(){
+    const menu = $("sidebarMoreMenu");
+    const trigger = $("btnSidebarMore");
+    if (!menu || !trigger) return;
+    menu.classList.remove("open");
+    menu.setAttribute("aria-hidden", "true");
+    trigger.setAttribute("aria-expanded", "false");
+    sidebarMoreMenuOpen = false;
+  }
+
+  function toggleSidebarMoreMenu(){
+    sidebarMoreMenuOpen ? closeSidebarMoreMenu() : openSidebarMoreMenu();
+  }
   function syncSidebarTopOffset(){
     if (!isMobile()){
       document.documentElement.style.removeProperty("--sidebar-top");
@@ -1537,11 +1562,9 @@
       const title = computeChatTitle(c).toLowerCase();
       const lastText = String(c.last_text || "").toLowerCase();
       const sender = String(c.last_sender || "").toLowerCase();
-      const unread = Number(c.unread || 0) > 0;
       const passFilter = activeChatFilter === "all"
         || (activeChatFilter === "dm" && c.type === "dm")
-        || (activeChatFilter === "group" && c.type === "group")
-        || (activeChatFilter === "unread" && unread);
+        || (activeChatFilter === "group" && c.type === "group");
       const passSearch = !q || title.includes(q) || lastText.includes(q) || sender.includes(q);
       return passFilter && passSearch;
     });
@@ -1554,7 +1577,7 @@
     if (!visibleChats.length){
       const div = document.createElement("div");
       div.className = "small";
-      div.textContent = chats.length ? "Ничего не найдено" : "Нет чатов. Создай ➕ или 💬";
+      div.textContent = chats.length ? "Ничего не найдено" : "Нет чатов. Создай ➕";
       list.appendChild(div);
       return;
     }
@@ -2895,6 +2918,7 @@ ${listText}
     setStatus("👋 Logged out");
     setNet("не в сети");
     closeSidebar();
+    closeSidebarMoreMenu();
     closeSheet();
     closeProfile();
     closeVoicePreview();
@@ -2925,7 +2949,7 @@ ${listText}
   $("btnMenuMyProfile").onclick = () => { closeProfileMenu(); openProfile(); };
   $("btnMenuContacts").onclick = () => { closeProfileMenu(); openContacts(); };
   $("btnMenuLogout").onclick = () => { closeProfileMenu(); logout(); };
-  $("btnContacts").onclick = () => openContacts();
+  $("btnContacts").onclick = () => { closeSidebarMoreMenu(); openContacts(); };
   $("btnChatInfo").onclick = () => openChatInfo();
   $("btnStartVoiceCall").onclick = () => startCall("voice");
   $("btnStartVideoCall").onclick = () => startCall("video");
@@ -2942,7 +2966,7 @@ ${listText}
   $("authPassword").addEventListener("keydown", (e)=>{ if (e.key === "Enter") authSubmit(); });
 
   $("btnOpenCreateGroup").onclick = () => openSheet("group");
-  $("btnOpenCreateDM").onclick = () => openSheet("dm");
+  $("btnSidebarMore").onclick = () => toggleSidebarMoreMenu();
   $("btnCloseSheet").onclick = () => closeSheet();
   $("btnSheetCancel").onclick = () => closeSheet();
   $("sheetOverlay").addEventListener("click", (e)=>{ if (e.target === $("sheetOverlay")) closeSheet(); });
@@ -3008,10 +3032,10 @@ ${listText}
   recBtn.addEventListener("pointercancel", (e)=>{ e.preventDefault(); stopHoldRec(); });
   recBtn.addEventListener("pointerleave", (e)=>{ if (rec.active) stopHoldRec(); });
 
-  $("btnRefreshChats").onclick = () => refreshChats(false).catch(e=> addSystem("❌ " + e.message));
-  $("btnLoadHistory").onclick = () => loadHistory().catch(e=> addSystem("❌ " + e.message));
-  $("btnInvite").onclick = () => inviteUser();
-  $("btnMute").onclick = () => muteChat();
+  $("btnRefreshChats").onclick = () => { closeSidebarMoreMenu(); refreshChats(false).catch(e=> addSystem("❌ " + e.message)); };
+  $("btnLoadHistory").onclick = () => { closeSidebarMoreMenu(); loadHistory().catch(e=> addSystem("❌ " + e.message)); };
+  $("btnInvite").onclick = () => { closeSidebarMoreMenu(); inviteUser(); };
+  $("btnMute").onclick = () => { closeSidebarMoreMenu(); muteChat(); };
   $("chatSearch").addEventListener("input", ()=> renderChatList());
   document.querySelectorAll(".chat-filter").forEach((btn)=>{
     btn.addEventListener("click", ()=>{
@@ -3019,6 +3043,15 @@ ${listText}
       document.querySelectorAll(".chat-filter").forEach((el)=> el.classList.toggle("is-active", el === btn));
       renderChatList();
     });
+  });
+
+
+  document.addEventListener("click", (e)=>{
+    const menu = $("sidebarMoreMenu");
+    const trigger = $("btnSidebarMore");
+    if (!sidebarMoreMenuOpen || !menu || !trigger) return;
+    if (menu.contains(e.target) || trigger.contains(e.target)) return;
+    closeSidebarMoreMenu();
   });
 
   $("msgs").addEventListener("scroll", ()=> {
@@ -3034,6 +3067,7 @@ ${listText}
     if (e.key === "Escape"){
       closeCtx();
       closeSidebar();
+      closeSidebarMoreMenu();
       closeSheet();
       closeProfile();
       closeProfileMenu();

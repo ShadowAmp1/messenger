@@ -49,19 +49,16 @@
             <div class="row row-between">
               <div><b>Чаты</b></div>
               <div class="iconbar">
-                <button class="iconbtn" id="btnOpenCreateGroup" type="button" title="Создать групповой чат" aria-label="Создать групповой чат">➕</button>
-                <button class="iconbtn" id="btnOpenCreateDM" type="button" title="Создать личный чат" aria-label="Создать личный чат">💬</button>
-                <button class="iconbtn" id="btnRefreshChats" type="button" title="Обновить чаты" aria-label="Обновить чаты">⟳</button>
+                <button class="iconbtn" id="btnOpenCreateGroup" type="button" title="Создать чат" aria-label="Создать чат">➕</button>
+                <button class="iconbtn" id="btnSidebarMore" type="button" title="Дополнительные действия" aria-label="Дополнительные действия" aria-haspopup="true" aria-expanded="false" aria-controls="sidebarMoreMenu">⋯</button>
+                <div class="sidebar-more-menu" id="sidebarMoreMenu" aria-hidden="true">
+                  <button class="sidebar-more-item" id="btnRefreshChats" type="button">⟳ Обновить чаты</button>
+                  <button class="sidebar-more-item" id="btnLoadHistory" type="button">🕘 История</button>
+                  <button class="sidebar-more-item" id="btnContacts" type="button">📇 Контакты</button>
+                  <button class="sidebar-more-item" id="btnInvite" type="button">✉️ Пригласить</button>
+                  <button class="sidebar-more-item" id="btnMute" type="button">🔕 Тихий режим</button>
+                </div>
               </div>
-            </div>
-
-            <div class="sep"></div>
-
-            <div class="row row-gap-8">
-              <button class="btn flex-1" id="btnLoadHistory" type="button">История</button>
-              <button class="btn flex-1" id="btnContacts" type="button">Контакты</button>
-              <button class="btn flex-1" id="btnInvite" type="button">Пригласить</button>
-              <button class="btn flex-1" id="btnMute" type="button">Тихий режим</button>
             </div>
 
             <div class="sep"></div>
@@ -72,15 +69,10 @@
                 <button class="chat-filter is-active" data-filter="all" type="button">Все</button>
                 <button class="chat-filter" data-filter="dm" type="button">Личные</button>
                 <button class="chat-filter" data-filter="group" type="button">Группы</button>
-                <button class="chat-filter" data-filter="unread" type="button">Новые</button>
               </div>
             </div>
 
             <div class="chatlist" id="chatlist"></div>
-
-            <div class="small mt-auto">
-              ➕ группа • 💬 личный чат • Пригласить (только для группы) • 🗑 удалить чат • ПКМ/долгое нажатие по сообщению → изменить/удалить • печатает… • непрочитанные
-            </div>
           </div>
         </aside>
 

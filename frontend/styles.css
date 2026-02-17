@@ -228,6 +228,38 @@
       gap: 10px;
     }
     .iconbar{ display:flex; gap:8px; align-items:center; }
+    .sidebar .iconbar{ position:relative; }
+    .sidebar-more-menu{
+      position:absolute;
+      top:calc(100% + 6px);
+      right:0;
+      min-width:220px;
+      display:none;
+      flex-direction:column;
+      gap:4px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      box-shadow:0 16px 36px rgba(0,0,0,.18);
+      padding:8px;
+      z-index:80;
+    }
+    .sidebar-more-menu.open{ display:flex; }
+    .sidebar-more-item{
+      width:100%;
+      text-align:left;
+      border:1px solid transparent;
+      background:transparent;
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-size:14px;
+    }
+    .sidebar-more-item:hover{
+      background:color-mix(in srgb, var(--input) 86%, var(--surface));
+      border-color:color-mix(in srgb, var(--border) 72%, transparent);
+    }
     .iconbtn{
       appearance:none;
       -webkit-appearance:none;
