@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mini-messenger-static-v2';
+const CACHE_NAME = 'mini-messenger-shell-v3';
 const APP_SHELL = [
   '/',
   '/app',
@@ -9,6 +9,8 @@ const APP_SHELL = [
   '/frontend/icons/icon-192.svg',
   '/frontend/icons/icon-512.svg'
 ];
+
+const APP_SHELL_SET = new Set(APP_SHELL);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -31,7 +33,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const isAppShellRequest = APP_SHELL.includes(url.pathname);
+  const isAppShellRequest = APP_SHELL_SET.has(url.pathname);
   if (isAppShellRequest) {
     event.respondWith(
       caches.match(event.request).then((cached) => {

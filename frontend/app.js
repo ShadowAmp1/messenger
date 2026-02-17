@@ -2839,16 +2839,48 @@ ${listText}
     }
   }
 
+  async function clearClientSessionData(){
+    if ("caches" in window){
+      try{
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }catch(_){ }
+    }
+
+    if (!("indexedDB" in window) || typeof indexedDB.databases !== "function") return;
+    try{
+      const dbs = await indexedDB.databases();
+      await Promise.all(
+        dbs
+          .map((db) => String(db?.name || ""))
+          .filter(Boolean)
+          .map((dbName) => new Promise((resolve) => {
+            const req = indexedDB.deleteDatabase(dbName);
+            req.onsuccess = () => resolve();
+            req.onerror = () => resolve();
+            req.onblocked = () => resolve();
+          }))
+      );
+    }catch(_){ }
+  }
+
   async function logout(){
     stopAllExcept(null);
     endCall({ silent:true });
+    const lastMessageStorageKey = getLastMessageStorageKey();
     token = ""; me = ""; avatarUrl = "";
+    displayName = "";
+    profileBio = "";
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("avatar_url");
+    localStorage.removeItem("display_name");
+    localStorage.removeItem("profile_bio");
     localStorage.removeItem("activeChatId");
+    localStorage.removeItem(lastMessageStorageKey);
 
     try{ await request("/api/logout", { method: "POST", auth: false, retry: false }); }catch(_){ }
+    await clearClientSessionData();
 
     if (ws) { try{ ws.close(); }catch{} ws = null; }
 
