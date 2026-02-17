@@ -427,6 +427,36 @@
     .chatitem .left{ min-width:0; flex:1 1 auto; }
     .chatitem .title{ font-weight:600; white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
     .chatitem .sub{ font-size:12px; opacity:.8; color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow: ellipsis; }
+    .skeleton-row{
+      pointer-events:none;
+    }
+    .skeleton-block,
+    .skeleton-line{
+      border-radius: 10px;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--surface-2) 78%, transparent) 0%, color-mix(in srgb, #fff 24%, var(--surface-2)) 50%, color-mix(in srgb, var(--surface-2) 78%, transparent) 100%);
+      background-size: 220% 100%;
+      animation: skeleton-shimmer 1.15s linear infinite;
+    }
+    .skeleton-line{
+      height: 10px;
+      margin: 6px 0;
+      width: 100%;
+    }
+    .skeleton-line-title{ width: 68%; height: 12px; }
+    .skeleton-line-short{ width: 42%; }
+    .state-block{
+      border:1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius:14px;
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      background: color-mix(in srgb, var(--input) 94%, var(--surface));
+      color:var(--text);
+    }
+    .state-title{ font-weight:700; }
+    .state-sub{ font-size:13px; color:var(--muted); }
+    .state-btn{ width:max-content; }
     .chat-right{ display:flex; align-items:center; gap:8px; flex:0 0 auto; margin-left:auto; }
     .chat-meta{ display:flex; flex-direction:column; align-items:flex-end; gap:4px; min-width:44px; }
     .chat-time{ font-size:12px; color:var(--muted); line-height:1; }
@@ -554,6 +584,22 @@
       gap: 8px;
       position: relative;
       box-shadow: var(--bubble-shadow);
+    }
+    .msg-skeleton{
+      min-width: min(70%, 420px);
+      max-width: min(70%, 520px);
+      pointer-events:none;
+      border-style: dashed;
+    }
+    .state-block-chat{
+      margin: auto;
+      max-width: 420px;
+      width: min(100%, 420px);
+    }
+
+    @keyframes skeleton-shimmer{
+      0% { background-position: 200% 0; }
+      100% { background-position: -40% 0; }
     }
     .msg::before{
       content:"";
