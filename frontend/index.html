@@ -202,24 +202,22 @@
   </div>
 
   <!-- CHAT INFO -->
-  <div class="sheet-overlay" id="chatInfoOverlay" aria-hidden="true">
-    <div class="sheet" role="dialog" aria-modal="true">
-      <div class="sheet-top">
+  <div class="sheet-overlay chat-info-drawer-overlay" id="chatInfoOverlay" aria-hidden="true">
+    <div class="sheet chat-info-drawer" role="dialog" aria-modal="true">
+      <div class="sheet-top chat-info-drawer-top">
         <b id="chatInfoTitle">Инфо чата</b>
         <button class="xbtn iconbtn" id="btnCloseChatInfo" type="button" aria-label="Закрыть информацию о чате">✕</button>
       </div>
-      <div class="sheet-body">
+      <div class="sheet-body chat-info-drawer-body">
         <input id="chatInfoSearch" placeholder="Поиск по ключевому слову" />
         <button id="btnChatInfoSearch" class="btn" type="button">Поиск</button>
         <div id="chatInfoResults" class="small"></div>
         <div class="sep"></div>
 
         <div class="chat-info-tabs" role="tablist" aria-label="Категории">
-          <button class="chat-info-tab active" id="chatInfoTabMedia" data-tab="media" type="button" role="tab" aria-selected="true">Медиа</button>
-          <button class="chat-info-tab" id="chatInfoTabFiles" data-tab="files" type="button" role="tab" aria-selected="false">Файлы</button>
-          <button class="chat-info-tab" id="chatInfoTabVoice" data-tab="voice" type="button" role="tab" aria-selected="false">Голосовые</button>
-          <button class="chat-info-tab" id="chatInfoTabLinks" data-tab="links" type="button" role="tab" aria-selected="false">Ссылки</button>
-          <button class="chat-info-tab" id="chatInfoTabMembers" data-tab="members" type="button" role="tab" aria-selected="false">Участники</button>
+          <button class="chat-info-tab active" id="chatInfoTabInfo" data-tab="info" type="button" role="tab" aria-selected="true">Info</button>
+          <button class="chat-info-tab" id="chatInfoTabMedia" data-tab="media" type="button" role="tab" aria-selected="false">Media</button>
+          <button class="chat-info-tab" id="chatInfoTabMembers" data-tab="members" type="button" role="tab" aria-selected="false">Members</button>
         </div>
 
         <div class="chat-info-list" id="chatInfoTabList"></div>

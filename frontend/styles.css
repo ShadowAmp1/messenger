@@ -1074,6 +1074,42 @@
       border-radius: 12px;
     }
 
+    .chat-info-drawer-overlay{
+      align-items: stretch;
+      justify-content: flex-end;
+      padding: 0;
+    }
+    .chat-info-drawer{
+      width: min(420px, 100vw);
+      max-width: 100%;
+      height: 100dvh;
+      border-radius: 0;
+      border-top: 0;
+      border-right: 0;
+      border-bottom: 0;
+      transform: translateX(100%);
+      opacity: .98;
+      transition: transform .18s ease, opacity .18s ease;
+      display:flex;
+      flex-direction:column;
+    }
+    .chat-info-drawer-overlay.open .chat-info-drawer{
+      transform: translateX(0);
+      opacity: 1;
+    }
+    .chat-info-drawer-body{
+      overflow: auto;
+      min-height: 0;
+    }
+    .chat-info-drawer-top{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    @media (max-width: 900px){
+      .chat-info-drawer{ width: min(100vw, 420px); }
+    }
+
     .ctx{
       position: fixed;
       z-index: 80;
