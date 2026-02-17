@@ -14,6 +14,7 @@
   let stories = [];
   let avatarHistory = [];
   let contacts = [];
+  const HELP_ONBOARDING_KEY = "helpOnboardingShown";
 
   const REACTION_EMOJIS = ["👍","❤️","😂","😮","🔥","🎉","👏","🤝","🙏","😢","😡","💯"];
 
@@ -917,6 +918,7 @@
       connectWS_GLOBAL();
       await refreshChats(true);
       loadStories().catch(()=>{});
+      maybeShowHelpOnboarding();
     }catch(e){
       const msg = String(e?.message || e || "");
       if (offlineMode || /интернет|недоступен|Failed to fetch/i.test(msg)){
@@ -1253,6 +1255,7 @@
   }
 
   const profile = { overlay: $("profileOverlay") };
+  const help = { overlay: $("helpOverlay") };
   const userProfile = { overlay: $("userProfileOverlay"), activeUsername: "" };
   const profileMenu = { root: $("profileMenu"), trigger: $("whoami") };
 
@@ -1286,6 +1289,22 @@
   function closeProfile(){
     profile.overlay.classList.remove("open");
     profile.overlay.setAttribute("aria-hidden","true");
+  }
+
+  function openHelp(){
+    help.overlay.classList.add("open");
+    help.overlay.setAttribute("aria-hidden", "false");
+    localStorage.setItem(HELP_ONBOARDING_KEY, "1");
+  }
+
+  function closeHelp(){
+    help.overlay.classList.remove("open");
+    help.overlay.setAttribute("aria-hidden", "true");
+  }
+
+  function maybeShowHelpOnboarding(){
+    if (localStorage.getItem(HELP_ONBOARDING_KEY) === "1") return;
+    openHelp();
   }
 
   function closeUserProfile(){
@@ -2921,6 +2940,7 @@ ${listText}
     closeSidebarMoreMenu();
     closeSheet();
     closeProfile();
+    closeHelp();
     closeVoicePreview();
     openAuth("login");
   }
@@ -2948,8 +2968,10 @@ ${listText}
   $("whoami").onclick = () => toggleProfileMenu();
   $("btnMenuMyProfile").onclick = () => { closeProfileMenu(); openProfile(); };
   $("btnMenuContacts").onclick = () => { closeProfileMenu(); openContacts(); };
+  $("btnMenuHelp").onclick = () => { closeProfileMenu(); openHelp(); };
   $("btnMenuLogout").onclick = () => { closeProfileMenu(); logout(); };
   $("btnContacts").onclick = () => { closeSidebarMoreMenu(); openContacts(); };
+  $("btnHelp").onclick = () => { closeSidebarMoreMenu(); openHelp(); };
   $("btnChatInfo").onclick = () => openChatInfo();
   $("btnStartVoiceCall").onclick = () => startCall("voice");
   $("btnStartVideoCall").onclick = () => startCall("video");
@@ -2985,6 +3007,7 @@ ${listText}
   $("sheetInput").addEventListener("keydown", (e)=>{ if (e.key === "Enter") $("btnSheetOk").click(); });
 
   $("btnCloseProfile").onclick = () => closeProfile();
+  $("btnCloseHelp").onclick = () => closeHelp();
   $("btnCloseUserProfile").onclick = () => closeUserProfile();
   $("btnCloseContacts").onclick = () => closeContacts();
   $("btnCloseChatInfo").onclick = () => closeChatInfo();
@@ -2996,6 +3019,7 @@ ${listText}
   $("contactsOverlay").addEventListener("click", (e)=>{ if (e.target === $("contactsOverlay")) closeContacts(); });
   $("chatInfoOverlay").addEventListener("click", (e)=>{ if (e.target === $("chatInfoOverlay")) closeChatInfo(); });
   $("profileOverlay").addEventListener("click", (e)=>{ if (e.target === $("profileOverlay")) closeProfile(); });
+  $("helpOverlay").addEventListener("click", (e)=>{ if (e.target === $("helpOverlay")) closeHelp(); });
   $("userProfileOverlay").addEventListener("click", (e)=>{ if (e.target === $("userProfileOverlay")) closeUserProfile(); });
   document.addEventListener("click", (e)=>{
     const menu = $("profileMenu");
@@ -3070,6 +3094,7 @@ ${listText}
       closeSidebarMoreMenu();
       closeSheet();
       closeProfile();
+      closeHelp();
       closeProfileMenu();
     }
     if (e.key === "Tab" && sidebar.classList.contains("open")){
@@ -3116,6 +3141,7 @@ ${listText}
         connectWS_GLOBAL();
         await refreshChats(true);
         loadStories().catch(()=>{});
+        maybeShowHelpOnboarding();
       })
       .catch(() => {
         token = "";
@@ -3132,4 +3158,5 @@ ${listText}
   } else {
     addSystem("🔐 Требуется авторизация.");
     openAuth("login");
+    maybeShowHelpOnboarding();
   }
