@@ -1142,7 +1142,7 @@
       // edited
       if (data.type === "message_edited"){
         if (data.chat_id === activeChatId){
-          applyEdited(data.id, data.text, true);
+          applyEdited(data.id, data.text, true, data.edited_at || null);
         }
         return;
       }
@@ -1150,7 +1150,7 @@
       // deleted for all
       if (data.type === "message_deleted_all"){
         if (data.chat_id === activeChatId){
-          applyDeletedAll(data.id);
+          applyDeletedAll(data.id, data.deleted_at || null);
         }
         refreshChats(false).catch(()=>{});
         return;
@@ -1733,6 +1733,8 @@
     div.dataset.msgId = String(m.id || "");
     div.dataset.sender = String(m.sender || "");
     div.dataset.deletedForAll = String(!!m.deleted_for_all);
+    div.dataset.editedAt = String(m.edited_at || "");
+    div.dataset.deletedAt = String(m.deleted_at || "");
     div.dataset.myReactions = JSON.stringify(m.my_reactions || []);
 
     const meta = document.createElement("div");
@@ -1751,7 +1753,7 @@
     if (m.is_edited){
       const ed = document.createElement("span");
       ed.className = "edited";
-      ed.textContent = "edited";
+      ed.textContent = "изменено";
       right.appendChild(ed);
     }
 
@@ -1764,7 +1766,7 @@
 
     if (m.deleted_for_all){
       body.className = "deleted";
-      body.textContent = "Сообщение удалено";
+      body.textContent = "Это сообщение удалено";
       div.appendChild(body);
     } else {
       const media_url = m.media_url || "";
@@ -1949,10 +1951,14 @@
     }, 0);
   }
 
-  function applyEdited(id, text, isEdited){
+  function applyEdited(id, text, isEdited, editedAt = null){
     const el = msgElById.get(id);
     if (!el) return;
     if (el.dataset.deletedForAll === "true") return;
+
+    if (editedAt){
+      el.dataset.editedAt = String(editedAt);
+    }
 
     const body = el.querySelector('[data-role="body"]');
     if (body) body.textContent = text;
@@ -1961,20 +1967,23 @@
     if (metaRight && isEdited && !metaRight.querySelector(".edited")){
       const ed = document.createElement("span");
       ed.className = "edited";
-      ed.textContent = "edited";
+      ed.textContent = "изменено";
       metaRight.appendChild(ed);
     }
   }
 
-  function applyDeletedAll(id){
+  function applyDeletedAll(id, deletedAt = null){
     const el = msgElById.get(id);
     if (!el) return;
     el.dataset.deletedForAll = "true";
+    if (deletedAt){
+      el.dataset.deletedAt = String(deletedAt);
+    }
     el.querySelectorAll(".media").forEach(n => n.remove());
     const body = el.querySelector('[data-role="body"]');
     if (body){
       body.className = "deleted";
-      body.textContent = "Сообщение удалено";
+      body.textContent = "Это сообщение удалено";
     }
   }
 
