@@ -549,6 +549,7 @@
       flex: 1 1 auto;
       min-height: 0;
       overflow:auto;
+      overflow-x:hidden;
       padding: 14px 16px;
       display:flex;
       flex-direction: column;
@@ -701,10 +702,12 @@
       display:block;
       min-width:0;
       max-width:100%;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      white-space:normal;
+      overflow:visible;
+      text-overflow:clip;
       text-align:left;
+      overflow-wrap:anywhere;
+      word-break:break-word;
     }
     .sender-link:hover, .msg-avatar.clickable:hover{ opacity:.82; }
     .msg-avatar.clickable{ cursor:pointer; }
@@ -760,25 +763,31 @@
       opacity:.9;
       margin-bottom:6px;
       display:flex;
-      align-items:center;
-      gap:4px;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:2px;
       max-width:100%;
       min-width:0;
       overflow:hidden;
     }
     .reply-preview span{
       min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
+      max-width:100%;
+      overflow-wrap:anywhere;
+      word-break:break-word;
+      white-space:normal;
     }
     .msg-stack{display:flex;flex-direction:column;align-items:flex-start;max-width:min(70%, 720px);min-width:0;flex:0 1 auto;}
     .msg-stack.me{align-items:flex-end;}
+    .msg-main{display:flex;align-items:center;gap:8px;max-width:100%;min-width:0;}
+    .msg-main .msg{flex:1 1 auto;}
     .reactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;padding:0 4px;max-width:100%;min-width:0;}
     .react{font-size:12px;border:1px solid var(--border);padding:2px 7px;border-radius:999px;background:var(--surface);cursor:pointer;}
     .react.mine{border-color:var(--primary);background:color-mix(in srgb, var(--primary) 22%, var(--surface));}
-    .msg-actions-col{flex:0 0 30px;display:flex;align-items:center;justify-content:center;align-self:stretch;}
+    .msg-actions-col{flex:0 0 30px;display:flex;align-items:center;justify-content:center;align-self:center;}
     .msg-quick-add{width:24px;height:24px;padding:0;display:grid;place-items:center;line-height:1;font-size:16px;}
+
+    .msg [data-role="body"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word;}
     .emoji-picker{position:fixed;z-index:1000;display:flex;gap:4px;padding:6px;border:1px solid var(--border);background:var(--card);border-radius:10px;box-shadow:var(--shadow)}
     .emoji-picker button{border:none;background:transparent;font-size:18px;cursor:pointer}
     .msg.flash{animation:flashMsg 1.2s ease;}
