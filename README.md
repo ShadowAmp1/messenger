@@ -70,3 +70,11 @@ curl http://localhost:8000/
 ```json
 {"method": "GET", "path": "/api/chats", "status": 200, "latency_ms": 12.41, "user_id": "alice"}
 ```
+
+## Ручной чеклист для refresh-cookie
+1. Откройте DevTools → Network, выполните вход (`/api/login` или `/api/register`).
+2. В ответе проверьте заголовок `Set-Cookie` для `refresh_token` с флагами `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api`.
+3. Откройте DevTools → Application → Storage → Local Storage и убедитесь, что ключа `refresh_token` нет.
+4. Дождитесь истечения access-token (или вручную вызовите `/api/refresh`), убедитесь что запрос уходит без body-токена, а cookie отправляется автоматически.
+5. Проверьте базовые сценарии после refresh: список чатов грузится, сообщения отправляются, WebSocket переподключается с новым access-token.
+6. Нажмите logout и убедитесь, что `/api/logout` вызывается, а cookie `refresh_token` очищается.

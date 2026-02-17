@@ -4,7 +4,8 @@
   let lastSidebarFocus = null;
 
   let token = localStorage.getItem("token") || "";
-  let refreshToken = localStorage.getItem("refresh_token") || "";
+  // Cleanup legacy client-side refresh token storage.
+  localStorage.removeItem("refresh_token");
   let me = localStorage.getItem("username") || "";
   let avatarUrl = localStorage.getItem("avatar_url") || "";
   let replyTo = null;
@@ -565,7 +566,7 @@
     }
 
     const reqHeaders = { ...(headers || {}) };
-    const opts = { method, headers: reqHeaders };
+    const opts = { method, headers: reqHeaders, credentials: "same-origin" };
     if (auth && token) reqHeaders["Authorization"] = `Bearer ${token}`;
 
     if (body instanceof FormData){
@@ -599,18 +600,14 @@
   }
 
   async function tryRefresh(){
-    if (!refreshToken) return false;
     try{
       const data = await request("/api/refresh", {
         method: "POST",
-        body: { refresh_token: refreshToken },
         auth: false,
         retry: false
       });
       token = data.token || "";
-      refreshToken = data.refresh_token || "";
       localStorage.setItem("token", token);
-      localStorage.setItem("refresh_token", refreshToken);
       return !!token;
     }catch(_){
       return false;
@@ -848,10 +845,8 @@
     try{
       const data = await api(authMode==="login" ? "/api/login" : "/api/register", "POST", {username, password});
       token = data.token;
-      refreshToken = data.refresh_token || "";
       me = data.username;
       localStorage.setItem("token", token);
-      localStorage.setItem("refresh_token", refreshToken);
       localStorage.setItem("username", me);
 
       await refreshMe();
@@ -2654,15 +2649,16 @@ ${listText}
     }
   }
 
-  function logout(){
+  async function logout(){
     stopAllExcept(null);
     endCall({ silent:true });
-    token = ""; refreshToken = ""; me = ""; avatarUrl = "";
+    token = ""; me = ""; avatarUrl = "";
     localStorage.removeItem("token");
-    localStorage.removeItem("refresh_token");
     localStorage.removeItem("username");
     localStorage.removeItem("avatar_url");
     localStorage.removeItem("activeChatId");
+
+    try{ await request("/api/logout", { method: "POST", auth: false, retry: false }); }catch(_){ }
 
     if (ws) { try{ ws.close(); }catch{} ws = null; }
 
@@ -2862,7 +2858,6 @@ ${listText}
       .catch(() => {
         token = "";
         localStorage.removeItem("token");
-        localStorage.removeItem("refresh_token");
         localStorage.removeItem("username");
         localStorage.removeItem("avatar_url");
         localStorage.removeItem("activeChatId");

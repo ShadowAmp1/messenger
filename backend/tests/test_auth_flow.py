@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from fastapi import Response
 
 
 def _load_main_module(monkeypatch):
@@ -70,10 +71,18 @@ def test_register_then_login(monkeypatch):
     module.issue_refresh_token = lambda username: f"rt-{username}"
     module.check_rate_limit = lambda key, limit: None
 
-    register_response = module.register(module.AuthIn(username="alice", password="secret123"), DummyRequest())
+    register_response = module.register(
+        module.AuthIn(username="alice", password="secret123"),
+        DummyRequest(),
+        Response(),
+    )
     assert register_response["username"] == "alice"
 
-    login_response = module.login(module.AuthIn(username="alice", password="secret123"), DummyRequest())
+    login_response = module.login(
+        module.AuthIn(username="alice", password="secret123"),
+        DummyRequest(),
+        Response(),
+    )
     assert login_response["username"] == "alice"
 
 def test_login_invalid_credentials_returns_401(monkeypatch):
@@ -112,7 +121,11 @@ def test_login_invalid_credentials_returns_401(monkeypatch):
     module.check_rate_limit = lambda key, limit: None
 
     with pytest.raises(module.HTTPException) as err:
-        module.login(module.AuthIn(username="alice", password="wrong-pass"), DummyRequest())
+        module.login(
+            module.AuthIn(username="alice", password="wrong-pass"),
+            DummyRequest(),
+            Response(),
+        )
 
     assert err.value.status_code == 401
     assert err.value.detail == "Invalid credentials"
