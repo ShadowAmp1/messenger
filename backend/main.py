@@ -253,12 +253,19 @@ def init_db() -> None:
                 CREATE TABLE IF NOT EXISTS refresh_tokens (
                     token TEXT PRIMARY KEY,
                     username TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
                     expires_at BIGINT NOT NULL,
-                    revoked BOOLEAN NOT NULL DEFAULT FALSE
+                    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                    replaced_by TEXT,
+                    compromised BOOLEAN NOT NULL DEFAULT FALSE
                 );
                 """
             )
+            cur.execute("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS session_id TEXT;")
+            cur.execute("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS replaced_by TEXT;")
+            cur.execute("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS compromised BOOLEAN NOT NULL DEFAULT FALSE;")
+            cur.execute("UPDATE refresh_tokens SET session_id = COALESCE(session_id, token) WHERE session_id IS NULL;")
             # read markers
             cur.execute(
                 """
@@ -462,15 +469,21 @@ def can_moderate(conn, chat_id: str, username: str) -> bool:
     return role in ("owner", "admin")
 
 
-def issue_refresh_token(username: str) -> str:
+def _insert_refresh_token(cur: Any, username: str, now: int, session_id: str) -> str:
     token = secrets.token_urlsafe(36)
+    cur.execute(
+        "INSERT INTO refresh_tokens(token, username, session_id, created_at, expires_at, revoked, replaced_by, compromised) VALUES (%s,%s,%s,%s,%s,FALSE,NULL,FALSE)",
+        (token, username, session_id, now, now + REFRESH_TTL_SECONDS),
+    )
+    return token
+
+
+def issue_refresh_token(username: str, session_id: Optional[str] = None) -> str:
     now = now_ts()
+    current_session_id = (session_id or secrets.token_urlsafe(18)).strip()
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO refresh_tokens(token, username, created_at, expires_at, revoked) VALUES (%s,%s,%s,%s,FALSE)",
-                (token, username, now, now + REFRESH_TTL_SECONDS),
-            )
+            token = _insert_refresh_token(cur, username, now, current_session_id)
         conn.commit()
     return token
 
@@ -908,19 +921,33 @@ def refresh_tokens(request: Request, response: Response):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT username, expires_at, revoked FROM refresh_tokens WHERE token=%s",
+                "SELECT username, expires_at, revoked, session_id, replaced_by FROM refresh_tokens WHERE token=%s",
                 (rt,),
             )
             row = cur.fetchone()
-            if not row or row["revoked"] or int(row["expires_at"]) < now_ts():
+            if not row or int(row["expires_at"]) < now_ts():
                 raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+            if row["revoked"]:
+                if row.get("replaced_by"):
+                    # Reuse of a previously rotated refresh token: consider account/session compromised.
+                    cur.execute(
+                        "UPDATE refresh_tokens SET revoked=TRUE, compromised=TRUE WHERE username=%s AND revoked=FALSE",
+                        (row["username"],),
+                    )
+                    conn.commit()
+                    clear_refresh_cookie(response)
+                    raise HTTPException(status_code=401, detail="Refresh token reuse detected")
+                raise HTTPException(status_code=401, detail="Invalid refresh token")
+
             username = row["username"]
-            cur.execute("UPDATE refresh_tokens SET revoked=TRUE WHERE token=%s", (rt,))
+            session_id = row["session_id"]
+            new_rt = _insert_refresh_token(cur, username, now_ts(), session_id)
+            cur.execute("UPDATE refresh_tokens SET revoked=TRUE, replaced_by=%s WHERE token=%s", (new_rt, rt))
         conn.commit()
 
     now = now_ts()
     token = jwt_sign({"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS})
-    new_rt = issue_refresh_token(username)
     set_refresh_cookie(response, new_rt)
     return {"token": token, "username": username}
 
