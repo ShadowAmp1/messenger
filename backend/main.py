@@ -51,7 +51,11 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
 # =========================
 JWT_SECRET = (os.environ.get("JWT_SECRET") or "").strip()
 if not JWT_SECRET:
-    raise RuntimeError("JWT_SECRET env is required")
+    JWT_SECRET = secrets.token_urlsafe(48)
+    print(
+        "[WARN] JWT_SECRET env is missing. Generated an ephemeral secret for this process; "
+        "tokens will be invalidated after restart. Set JWT_SECRET in environment for stable auth."
+    )
 if len(JWT_SECRET) < 16:
     raise RuntimeError("JWT_SECRET must be at least 16 characters")
 JWT_TTL_SECONDS = int(os.environ.get("JWT_TTL_SECONDS", str(60 * 60 * 24 * 30)))  # 30 days
@@ -2343,4 +2347,3 @@ async def mark_read(
         "last_read_id": last_id,
     })
     return {"ok": True}
-
