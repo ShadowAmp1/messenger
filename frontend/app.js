@@ -1085,7 +1085,16 @@
     for (const [u, on] of typingState.entries()){
       if (on && u !== me) names.push(u);
     }
-    $("typing").textContent = names.length ? `${names.join(", ")} печатает…` : "";
+    const typingEl = $("typing");
+    if (!names.length){
+      typingEl.classList.remove("active");
+      typingEl.textContent = "";
+      return;
+    }
+    const who = names.join(", ");
+    const verb = names.length > 1 ? "печатают" : "печатает";
+    typingEl.classList.add("active");
+    typingEl.innerHTML = `${escapeHtml(`${who} ${verb}`)} <span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>`;
   }
 
   let typingTimer = null;
@@ -2204,6 +2213,8 @@
       box.prepend(row);
       return;
     }
+    const animate = opts.animate !== false;
+    if (animate) row.classList.add("msg-row-enter");
     box.appendChild(row);
     if (stick) {
       scrollToBottom(box);
@@ -2309,7 +2320,7 @@
       const data = await api(`/api/messages?chat_id=${encodeURIComponent(activeChatId)}&limit=50`);
       const box = $("msgs");
       box.innerHTML = "";
-      for (const m of (data.messages || [])) addMsg(m, { notifySystem: false });
+      for (const m of (data.messages || [])) addMsg(m, { notifySystem: false, animate: false });
       hasMoreHistory = Boolean(data.has_more);
       scrollToBottom(box);
       updateToBottom();
