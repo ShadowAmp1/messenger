@@ -168,6 +168,7 @@
     .profile-menu.open{ display:flex; flex-direction:column; gap:4px; }
     .profile-menu-item{
       width:100%;
+      min-height:40px;
       border:0;
       border-radius: 10px;
       background: transparent;
@@ -226,6 +227,13 @@
       --btn-border: var(--border);
       --btn-color: var(--text);
       font-weight:500;
+    }
+    .profile-menu-item,
+    .sidebar-more-item,
+    .chat-info-tab,
+    .tab{
+      min-height:40px;
+      min-width:40px;
     }
     .btn--ghost,
     .btn.ghost{
@@ -311,6 +319,7 @@
     .sidebar-more-menu.open{ display:flex; }
     .sidebar-more-item{
       width:100%;
+      min-height:40px;
       text-align:left;
       border:1px solid transparent;
       background:transparent;
@@ -381,7 +390,9 @@
       border:1px solid var(--border);
       background:var(--input);
       color:var(--text);
-      padding:6px 11px;
+      min-height:40px;
+      min-width:40px;
+      padding:9px 12px;
       border-radius:999px;
       cursor:pointer;
       white-space:nowrap;
@@ -838,6 +849,7 @@
     .chat-actions-menu.open{ display:flex; }
     .chat-actions-item{
       width:100%;
+      min-height:40px;
       text-align:left;
       border:1px solid transparent;
       background:transparent;
@@ -1076,6 +1088,8 @@
     .tab{
       appearance:none;
       -webkit-appearance:none;
+      min-height:40px;
+      min-width:40px;
       padding: 8px 12px;
       border-radius: 999px;
       border:1px solid var(--border);
@@ -1180,6 +1194,7 @@
     .sheet-actions{ display:flex; gap:10px; }
     .sheet-actions button{
       flex: 1 1 auto;
+      min-width: 40px;
       min-height: 40px;
       border-radius: 12px;
     }
@@ -1230,7 +1245,24 @@
       z-index: 1;
     }
     @media (max-width: 900px){
-      .chat-info-drawer{ width: min(100vw, 420px); }
+      .chat-info-drawer-overlay{
+        align-items:flex-end;
+        justify-content:center;
+        padding: 0;
+      }
+      .chat-info-drawer{
+        width: 100%;
+        height: min(78dvh, 680px);
+        border-radius: 18px 18px 0 0;
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        border-top: 1px solid var(--border);
+        border-bottom: 0;
+        transform: translateY(100%);
+      }
+      .chat-info-drawer-overlay.open .chat-info-drawer{
+        transform: translateY(0);
+      }
     }
 
     .ctx{
